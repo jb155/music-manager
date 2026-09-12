@@ -1,4 +1,4 @@
-﻿# 🎵 Music Manager — Quick Install & User Guide
+# 🎵 Music Manager — Quick Install & User Guide
 
 A self-hosted, automated music management suite powered by **Beets**, **SpotDL**, and local **AI Curation**. 
 
@@ -8,10 +8,12 @@ This package is pre-configured to run with **Docker Compose** and includes **Wat
 
 ## 📋 Prerequisites
 
-- **Docker** and **Docker Compose** installed on your NAS, Linux server, or PC:
-  - Linux / Debian / Ubuntu / OMV: `sudo apt install docker.io docker-compose-plugin`
-  - Synology / TrueNAS / Unraid: Native Docker / Container Manager app
-  - Windows / macOS: [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+**The only prerequisite is Docker.** You do **NOT** need to install Beets, Python, SpotDL, yt-dlp, or ffmpeg on your machine — all of them are already pre-installed and configured inside the Docker container!
+
+- **Docker** and **Docker Compose** on your NAS, Linux server, or PC:
+  - **Linux / Debian / Ubuntu / OMV:** `sudo apt install docker.io docker-compose-plugin`
+  - **Synology / TrueNAS / Unraid:** Use the built-in Docker / Container Manager app
+  - **Windows / macOS:** [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 
 ---
 

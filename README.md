@@ -1,4 +1,4 @@
-﻿# 🎵 Music Manager
+# 🎵 Music Manager
 
 A modern, self-hosted music automation suite and Web UI powered by **Beets**, **SpotDL**, and local **AI Curation (Ollama)**. It provides high-speed music downloading, missing album detection, 1-click tagging and library organization, interactive 30-second song previews, and smart Venn-diagram playlist generation.
 
@@ -17,6 +17,8 @@ A modern, self-hosted music automation suite and Web UI powered by **Beets**, **
 ---
 
 ## 🚀 Installation & Deployment
+
+> **No complex dependencies required!** Beets, SpotDL, yt-dlp, ffmpeg, chromaprint, and all Python plugins are **already pre-installed inside the container**. The only requirement on the host machine is **Docker**.
 
 You can run Music Manager either via the **pre-built container with automated updates** (recommended) or by **building from source**.
 
