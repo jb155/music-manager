@@ -781,6 +781,47 @@
                         </div>
                     </div>
 
+                    <!-- MANUAL FOLDER / FILE UPLOAD DROPZONE -->
+                    <div class="upload-dropzone card glass mt-3" id="staging-upload-dropzone">
+                        <div class="dropzone-inner text-center">
+                            <div class="dropzone-icon">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                            </div>
+                            <h3 style="margin-bottom: 4px;">Manual Music Import</h3>
+                            <p class="dropzone-text">Drag & drop your music folder, loose audio files, or a <code>.zip</code> album archive here</p>
+
+                            <div class="dropzone-actions mt-2">
+                                <button type="button" class="btn btn-primary" id="btn-select-folder">
+                                    <i class="fa-solid fa-folder-plus"></i> Select Music Folder
+                                </button>
+                                <button type="button" class="btn btn-secondary" id="btn-select-files">
+                                    <i class="fa-solid fa-file-audio"></i> Select Audio Files
+                                </button>
+                                <input type="file" id="input-folder-upload" webkitdirectory directory multiple hidden>
+                                <input type="file" id="input-files-upload" multiple accept="audio/*,.mp3,.flac,.m4a,.ogg,.wav,.opus,.aac,.alac,.aiff,.wma,.zip" hidden>
+                            </div>
+
+                            <div class="dropzone-options mt-3">
+                                <label class="checkbox-label" title="Automatically identify artist/album, fetch cover art, embed tags, and file into library">
+                                    <input type="checkbox" id="upload-auto-import-toggle" checked>
+                                    <span class="label-text"><i class="fa-solid fa-wand-magic-sparkles text-accent"></i> Automatically identify, tag, and import into library after upload</span>
+                                </label>
+                            </div>
+
+                            <!-- Upload Progress Container (Hidden until upload begins) -->
+                            <div class="upload-progress-container mt-3" id="upload-progress-container" style="display: none;">
+                                <div class="progress-info flex-between">
+                                    <span id="upload-progress-status"><i class="fa-solid fa-spinner fa-spin"></i> Uploading files...</span>
+                                    <span id="upload-progress-percent">0%</span>
+                                </div>
+                                <div class="progress-track mt-1">
+                                    <div class="progress-fill" id="upload-progress-bar" style="width: 0%;"></div>
+                                </div>
+                                <div class="upload-current-file text-muted mt-1" id="upload-current-file" style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="table-container mt-3">
                         <table class="data-table" id="staging-table">
                             <thead>

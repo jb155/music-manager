@@ -1025,12 +1025,98 @@ body {
 
 
 .overview-box .metric-label {
-
     font-size: 12px;
-
     color: var(--text-muted);
-
 }
+
+/* ==========================================================================
+   Manual Upload Dropzone & Progress Bar
+   ========================================================================== */
+.upload-dropzone {
+    border: 2px dashed rgba(255, 255, 255, 0.16);
+    border-radius: 14px;
+    padding: 26px 20px;
+    background: rgba(255, 255, 255, 0.02);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+}
+
+.upload-dropzone.dragover {
+    border-color: var(--accent, #38bdf8);
+    background: rgba(56, 189, 248, 0.08);
+    box-shadow: 0 0 24px rgba(56, 189, 248, 0.22);
+    transform: scale(1.006);
+}
+
+.dropzone-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.dropzone-icon i {
+    font-size: 40px;
+    color: var(--accent, #38bdf8);
+    margin-bottom: 10px;
+    transition: transform 0.2s ease;
+}
+
+.upload-dropzone.dragover .dropzone-icon i {
+    transform: translateY(-5px) scale(1.12);
+}
+
+.dropzone-text {
+    color: var(--text-muted, #94a3b8);
+    font-size: 13.5px;
+    margin-bottom: 14px;
+}
+
+.dropzone-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.dropzone-options {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    color: var(--text-normal, #e2e8f0);
+}
+
+.upload-progress-container {
+    width: 100%;
+    max-width: 580px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 10px;
+    padding: 12px 18px;
+    text-align: left;
+}
+
+.upload-progress-container .progress-info {
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.upload-progress-container .progress-track {
+    width: 100%;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.upload-progress-container .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #38bdf8, #818cf8);
+    border-radius: 4px;
+    transition: width 0.15s ease;
+}
+
 
 
 

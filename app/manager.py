@@ -1170,6 +1170,66 @@ paths:
 
         return {"success": True, "leftovers": leftovers}
 
+    async def save_uploaded_file(self, filename: str, file_obj, relative_path: Optional[str] = None) -> Dict[str, Any]:
+        """Save an uploaded audio/archive file into staging, preserving directory paths or auto-unpacking zip archives."""
+        audio_or_media_exts = {".mp3", ".flac", ".m4a", ".ogg", ".wav", ".opus", ".aac", ".alac", ".aiff", ".wma", ".jpg", ".jpeg", ".png", ".cue", ".m3u", ".m3u8"}
+
+        target_name = relative_path if (relative_path and relative_path.strip()) else filename
+        clean_rel = os.path.normpath(target_name).replace("\\", "/")
+        clean_rel = re.sub(r'^[a-zA-Z]:[/]', '', clean_rel).lstrip("/")
+        parts = [p for p in clean_rel.split("/") if p and p != ".." and p != "."]
+        if not parts:
+            parts = [os.path.basename(filename) or "upload.mp3"]
+        safe_rel_path = os.path.join(*parts)
+
+        dest_path = os.path.join(self.new_music_dir, safe_rel_path)
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+
+        bytes_written = 0
+        with open(dest_path, "wb") as f_out:
+            if hasattr(file_obj, "read"):
+                if asyncio.iscoroutinefunction(file_obj.read):
+                    while chunk := await file_obj.read(65536):
+                        f_out.write(chunk)
+                        bytes_written += len(chunk)
+                else:
+                    import shutil
+                    shutil.copyfileobj(file_obj, f_out, length=65536)
+
+        if bytes_written == 0 and os.path.exists(dest_path):
+            bytes_written = os.path.getsize(dest_path)
+
+        # If user uploaded a .zip file, automatically unpack audio contents into staging
+        if safe_rel_path.lower().endswith(".zip"):
+            try:
+                import zipfile
+                import shutil
+                extracted_count = 0
+                with zipfile.ZipFile(dest_path, 'r') as zf:
+                    for member in zf.infolist():
+                        m_clean = os.path.normpath(member.filename).replace("\\", "/")
+                        m_parts = [p for p in m_clean.split("/") if p and p != ".." and p != "."]
+                        if not m_parts or member.is_dir():
+                            continue
+                        m_safe_rel = os.path.join(*m_parts)
+                        ext = os.path.splitext(m_safe_rel)[1].lower()
+                        if ext in audio_or_media_exts:
+                            m_dest = os.path.join(self.new_music_dir, m_safe_rel)
+                            os.makedirs(os.path.dirname(m_dest), exist_ok=True)
+                            with zf.open(member) as source, open(m_dest, "wb") as target:
+                                shutil.copyfileobj(source, target)
+                            extracted_count += 1
+                try:
+                    os.remove(dest_path)
+                except Exception:
+                    pass
+                return {"filename": filename, "type": "zip", "extracted": extracted_count, "bytes": bytes_written}
+            except Exception as e:
+                logger.error(f"Error extracting uploaded zip {filename}: {e}")
+                return {"filename": filename, "type": "zip_error", "error": str(e), "bytes": bytes_written}
+
+        return {"filename": filename, "path": safe_rel_path, "type": "file", "bytes": bytes_written}
+
     def get_staging_files(self) -> List[Dict[str, Any]]:
         # Check /app for any stray files and move to /music_new
         try:

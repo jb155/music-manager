@@ -1,4 +1,4 @@
-﻿# 🎵 Music Manager — Quick Install & User Guide
+# 🎵 Music Manager — Quick Install & User Guide
 
 A self-hosted, automated music management suite powered by **Beets**, **SpotDL**, and local **AI Curation**. 
 
@@ -63,6 +63,10 @@ That's it! Open your web browser and navigate to:
 👉 **`http://localhost:8085`** *(or `http://<your-nas-ip>:8085`)*
 
 On first launch, the app automatically initializes all folders, generates a tuned Beets configuration, and connects to the Web UI.
+
+### 📥 Adding Music:
+- **Web UI (Easiest)**: Navigate to the **Staging & Import** tab and drag & drop a music folder, loose audio files, or a `.zip` album archive right into the window (or click **Select Music Folder**). With auto-import enabled, the system automatically identifies the tracks via MusicBrainz, fetches album artwork, embeds metadata, and files them into `Artist/Album/Track`.
+- **Direct Copy**: You can also drop audio files directly into your host machine's `music_new/` folder and click **1-Click Beets Import** in the web UI.
 
 ---
 

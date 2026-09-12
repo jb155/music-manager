@@ -2,7 +2,7 @@ import json
 import re
 import os
 import asyncio
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, Query
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -248,6 +248,38 @@ async def start_missing_download(req: MissingDownloadRequest, bg: BackgroundTask
     service._abort_requested = False
     bg.add_task(service.download_missing_tracks, req.tracks, req.auto_import)
     return {"message": "Missing tracks download started"}
+
+@app.post("/api/upload")
+async def upload_music_files(
+    bg: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    relative_paths: Optional[List[str]] = Form(None),
+    auto_import: bool = Form(False)
+):
+    """Upload audio files or a folder into staging, with optional automatic Beets import."""
+    results = []
+    total_bytes = 0
+
+    for i, file_obj in enumerate(files):
+        rel_path = relative_paths[i] if (relative_paths and i < len(relative_paths)) else None
+        res = await service.save_uploaded_file(file_obj.filename, file_obj, rel_path)
+        results.append(res)
+        total_bytes += res.get("bytes", 0)
+
+    import_started = False
+    if auto_import:
+        if service.task_progress.get("status") != "running":
+            service._abort_requested = False
+            bg.add_task(service.import_library, False)
+            import_started = True
+
+    return {
+        "success": True,
+        "count": len(files),
+        "total_bytes": total_bytes,
+        "results": results,
+        "auto_import_started": import_started
+    }
 
 @app.post("/api/import")
 async def start_import(bg: BackgroundTasks, req: Optional[ImportRequest] = None):

@@ -177,9 +177,14 @@ The single-page application is structured into **6 modular tabs** switched via `
 - Batch download actions to complete albums.
 
 ### 5. Staging & Library Maintenance Tab (`#pane-staging`)
-- Displays files in `/music_new` awaiting import.
+- **Manual Music Import Dropzone**:
+  - Drag & drop music folders (recursively parses all subfolders and tracks), loose audio files, or `.zip` archives.
+  - "Select Music Folder" directory picker and "Select Audio Files" file picker.
+  - Automatic `.zip` extraction and relative path preservation.
+  - Auto-import switch: automatically triggers Beets identification, metadata embedding, cover art retrieval, and library filing upon upload.
+- Displays files in staging directory awaiting import with 30-second audio preview player.
 - Triggers:
-  - **Import to Library**: Executes `beet import -q`.
+  - **1-Click Beets Import**: Executes `beet import -P -q -m` followed by loose track singleton import.
   - **Sanitize & Deduplicate**: Purges dead paths, phantom entries, and orphan album rows.
   - **Fetch All Artwork**: Runs `beet fetchart -f` across all albums.
   - **Retag Untagged Genres**: Backfills 100% of untagged tracks via Last.fm.
