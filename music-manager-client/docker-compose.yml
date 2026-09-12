@@ -6,24 +6,17 @@
     ports:
       - "${PORT:-8085}:8085"
     environment:
-      - MUSIC_DIR=/music
-      - NEW_MUSIC_DIR=/music_new
-      - BEETSDIR=/config/beets
-      - PREVIEW_DIR=/.music_preview
+      # Base storage directory: system automatically manages /music, /music_new, /config, etc.
+      - STORAGE_DIR=/storage
       - PYTHONUNBUFFERED=1
       - OLLAMA_HOST=${OLLAMA_HOST:-}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3.5:9b}
     volumes:
-      # Your existing music library collection
-      - ${MUSIC_PATH}:/music
-      # Staging folder for new downloads
-      - ${NEW_MUSIC_PATH}:/music_new
-      # Persistent configuration and personal database
-      - ${CONFIG_PATH:-./config}:/config
-      # Audio preview cache
-      - ${PREVIEW_PATH:-./.music_preview}:/.music_preview
+      # Single base storage: point to any local folder or external drive.
+      # Defaults to a './music_data' folder right next to this compose file.
+      - ${STORAGE_PATH:-./music_data}:/storage
     labels:
-      # Tells Watchtower to automatically update this container
+      # Tells Watchtower to automatically update this container when new versions are published
       - "com.centurylinklabs.watchtower.enable=true"
 
   watchtower:

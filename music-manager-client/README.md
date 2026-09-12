@@ -1,4 +1,4 @@
-# 🎵 Music Manager — Quick Install & User Guide
+﻿# 🎵 Music Manager — Quick Install & User Guide
 
 A self-hosted, automated music management suite powered by **Beets**, **SpotDL**, and local **AI Curation**. 
 
@@ -32,21 +32,25 @@ cp .env.example .env
 Copy-Item .env.example .env
 ```
 
-### Step 2: Set your Music paths in `.env`
-Open `.env` in any text editor and point to your music folders:
+### Step 2: Set your Base Storage Location in `.env`
+Open `.env` in any text editor and declare where your files will live. **You only need to set one folder!**
 
 ```bash
-# Path to your existing music collection
-MUSIC_PATH=/volume1/Music
+# Set this to your base folder on your machine or NAS:
+STORAGE_PATH=/volume1/MusicData
+```
+*(On Windows: `STORAGE_PATH=D:\MusicData`, or leave default `./music_data` to store next to the compose file)*
 
-# Path for staging new downloads (before they are tagged and imported)
-NEW_MUSIC_PATH=/volume1/Music_New
-
-# (Optional) Port to access the web UI (default: 8085)
-PORT=8085
+The system **automatically creates and organizes** the subfolders for you on startup:
+```text
+your_storage_folder/
+  ├── music/          <- Your permanent, organized music library (Artist/Album/Track)
+  ├── music_new/      <- Staging folder for incoming downloads before cataloging
+  ├── config/beets/   <- Database (library.db) and configuration (config.yaml)
+  └── .music_preview/ <- Temporary audio preview clips
 ```
 
-> **Note**: If you don't already have a `Music_New` folder, create an empty folder next to your music library.
+> **Have existing music?** Simply drop your existing audio files or artist folders into the generated `music/` folder (or drop unorganized files into `music_new/` to let the auto-importer tag and file them).
 
 ### Step 3: Start the Application
 In your terminal, run:
@@ -58,7 +62,7 @@ docker compose up -d
 That's it! Open your web browser and navigate to:
 👉 **`http://localhost:8085`** *(or `http://<your-nas-ip>:8085`)*
 
-On the first launch, the app automatically generates a clean Beets database and settings.
+On first launch, the app automatically initializes all folders, generates a tuned Beets configuration, and connects to the Web UI.
 
 ---
 

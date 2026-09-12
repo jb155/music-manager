@@ -2,9 +2,6 @@ FROM python:3.11-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
-    BEETSDIR=/config/beets \
-    MUSIC_DIR=/music \
-    NEW_MUSIC_DIR=/music_new \
     PORT=8085
 
 # Install system dependencies & ffmpeg
@@ -48,7 +45,7 @@ open(ss_file, "w").write(c4)' || true
 COPY app/ ./app/
 
 # Create mount points & host path compatibility symlinks
-RUN mkdir -p /music /music_new /config/beets /srv/dev-disk-by-uuid-5c92a2d3-bb90-43b8-9626-372dd587ab8b && \
+RUN mkdir -p /storage /music /music_new /config/beets /srv/dev-disk-by-uuid-5c92a2d3-bb90-43b8-9626-372dd587ab8b && \
     ln -s /music /srv/dev-disk-by-uuid-5c92a2d3-bb90-43b8-9626-372dd587ab8b/Music 2>/dev/null || true && \
     ln -s /music_new /srv/dev-disk-by-uuid-5c92a2d3-bb90-43b8-9626-372dd587ab8b/Music_New 2>/dev/null || true
 

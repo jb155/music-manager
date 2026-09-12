@@ -106,10 +106,32 @@ def normalize_album_name(album: str) -> str:
 
 class MusicManagerService:
     def __init__(self):
-        self.music_dir = os.environ.get("MUSIC_DIR", "/music")
-        self.new_music_dir = os.environ.get("NEW_MUSIC_DIR", "/music_new")
-        self.beets_dir = os.environ.get("BEETSDIR", "/config/beets")
-        self.preview_dir = os.environ.get("PREVIEW_DIR", "/.music_preview")
+        # Base storage directory support (single declaration point for entire platform)
+        self.storage_dir = os.environ.get("STORAGE_DIR")
+        if self.storage_dir:
+            default_music = os.path.join(self.storage_dir, "music")
+            default_new = os.path.join(self.storage_dir, "music_new")
+            default_beets = os.path.join(self.storage_dir, "config", "beets")
+            default_preview = os.path.join(self.storage_dir, ".music_preview")
+
+            custom_music = os.environ.get("MUSIC_DIR")
+            self.music_dir = custom_music if (custom_music and custom_music != "/music") else default_music
+
+            custom_new = os.environ.get("NEW_MUSIC_DIR")
+            self.new_music_dir = custom_new if (custom_new and custom_new != "/music_new") else default_new
+
+            custom_beets = os.environ.get("BEETSDIR")
+            self.beets_dir = custom_beets if (custom_beets and custom_beets != "/config/beets") else default_beets
+
+            custom_preview = os.environ.get("PREVIEW_DIR")
+            self.preview_dir = custom_preview if (custom_preview and custom_preview != "/.music_preview") else default_preview
+        else:
+            self.music_dir = os.environ.get("MUSIC_DIR", "/music")
+            self.new_music_dir = os.environ.get("NEW_MUSIC_DIR", "/music_new")
+            self.beets_dir = os.environ.get("BEETSDIR", "/config/beets")
+            self.preview_dir = os.environ.get("PREVIEW_DIR", "/.music_preview")
+
+        os.environ["BEETSDIR"] = self.beets_dir
         try:
             os.makedirs(self.preview_dir, exist_ok=True)
         except Exception as e:
@@ -154,6 +176,19 @@ class MusicManagerService:
         self._ensure_spotapi_patched()
         self._ensure_spotdl_patched()
 
+    def get_storage_info(self) -> Dict[str, Any]:
+        """Return configured base storage paths, subfolders, and database health."""
+        db_file = os.path.join(self.beets_dir, "library.db")
+        return {
+            "base_storage": self.storage_dir or "discrete",
+            "music_dir": self.music_dir,
+            "new_music_dir": self.new_music_dir,
+            "beets_dir": self.beets_dir,
+            "preview_dir": self.preview_dir,
+            "library_db_exists": os.path.exists(db_file),
+            "library_db_path": db_file
+        }
+
     def _ensure_beets_config(self):
         """Ensure Beets configuration file exists; create default config if missing on first run."""
         cfg_file = os.path.join(self.beets_dir, "config.yaml")
@@ -170,8 +205,9 @@ class MusicManagerService:
             except Exception as e:
                 logger.warning(f"Could not copy bundled beets config: {e}")
 
-        default_yaml = """directory: /music
-library: /config/beets/library.db
+        db_path = os.path.join(self.beets_dir, "library.db")
+        default_yaml = """directory: __MUSIC_DIR__
+library: __LIBRARY_DB__
 
 plugins: ftintitle inline missing duplicates fetchart embedart musicbrainz lastgenre
 
@@ -263,6 +299,7 @@ paths:
     default: $custom_artist/$custom_album/$custom_track_name
     singleton: $custom_artist/Non-Album/$custom_track_name
 """
+        default_yaml = default_yaml.replace("__MUSIC_DIR__", self.music_dir).replace("__LIBRARY_DB__", db_path)
         try:
             with open(cfg_file, "w", encoding="utf-8") as f:
                 f.write(default_yaml)

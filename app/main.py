@@ -177,6 +177,10 @@ class PlaylistExportRequest(BaseModel):
 async def health_check():
     return {"status": "ok", "service": "Music Manager Web", "version": "1.3.0"}
 
+@app.get("/api/system/storage")
+async def get_storage_info():
+    return service.get_storage_info()
+
 @app.get("/api/status")
 async def get_status():
     return service.task_progress
