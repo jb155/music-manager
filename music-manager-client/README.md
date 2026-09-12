@@ -62,7 +62,29 @@ docker compose up -d
 That's it! Open your web browser and navigate to:
 👉 **`http://localhost:8085`** *(or `http://<your-nas-ip>:8085`)*
 
-On first launch, the app automatically initializes all folders, generates a tuned Beets configuration, and connects to the Web UI.
+---
+
+## 🖥️ Alternative: OpenMediaVault (OMV) Web GUI Installation
+
+If you manage your NAS using the OpenMediaVault Web GUI with the **Compose Plugin**:
+
+1. Log into your **OMV Web Interface**.
+2. Navigate to **Services** ➔ **Compose** ➔ **Files**.
+3. Click the **➕ (Add / Create)** button.
+4. Fill in the form:
+   - **Name:** `music-manager`
+   - **Description:** `Music Manager & Beets Automation`
+   - **File (Compose):** Paste the contents of `docker-compose.yml`
+   - Check **Show environment file**
+   - **Environment:**
+     ```bash
+     STORAGE_PATH=./music_data
+     PORT=8085
+     ```
+     *(Or set `STORAGE_PATH` to any shared folder path on your OMV disk)*
+5. Click **Save**, then click the yellow banner's **Apply (✓)** checkmark.
+6. Select `music-manager` in the table and click **Up (▶️)** to pull and start the services.
+7. Open **`http://<your-nas-ip>:8085`** in your browser!
 
 ### 📥 Adding Music:
 - **Web UI (Easiest)**: Navigate to the **Staging & Import** tab and drag & drop a music folder, loose audio files, or a `.zip` album archive right into the window (or click **Select Music Folder**). With auto-import enabled, the system automatically identifies the tracks via MusicBrainz, fetches album artwork, embeds metadata, and files them into `Artist/Album/Track`.

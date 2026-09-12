@@ -1,4 +1,4 @@
-﻿# Personal config & local caches
+# Personal config & local caches
 .env
 *.db*
 *.pickle
@@ -15,3 +15,9 @@ __pycache__/
 *.bak*
 dist/
 *.zip
+
+# OMV Compose generated files
+compose.override.yml
+compose.yml
+music-manager.env
+music-manager.yml
