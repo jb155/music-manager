@@ -251,10 +251,10 @@ tail -f /srv/dev-disk-by-uuid-bf30c64b-47b4-4699-b768-f50d51147267/Jacques_Docum
 ### Automated Pipeline Architecture
 1. **GitHub Actions** (`.github/workflows/docker-publish.yml`): Automatically compiles multi-platform Docker images upon pushing to `main`, publishing to `ghcr.io/<owner>/music-manager:latest`.
 2. **Watchtower Auto-Updater**: Runs as an isolated companion container on the client machine, checking `ghcr.io` every 3600 seconds and performing zero-downtime rolling updates with automatic image cleanup.
-3. **Brother Distribution Bundle** (`brother-package/`):
+3. **Client Distribution Bundle** (`music-manager-client/`):
    - `docker-compose.yml`: Client compose file running `music-manager` (from GHCR) and `watchtower`.
-   - `.env.example`: Configurable client paths for `MUSIC_PATH`, `NEW_MUSIC_PATH`, `PORT`, and `OLLAMA_HOST`.
-   - `SETUP_GUIDE.md`: Step-by-step walkthrough for client setup.
+   - `.env.example`: Single-path base storage declaration (`STORAGE_PATH`), `PORT`, and optional `OLLAMA_HOST`.
+   - `README.md`: 3-step quick installation guide and OMV/NAS instructions.
 4. **Auto-Seeding Defaults**: `MusicManagerService._ensure_beets_config()` automatically creates a working `config.yaml` on first startup if the mounted config volume is empty.
 
 

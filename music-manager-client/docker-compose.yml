@@ -1,4 +1,4 @@
-﻿services:
+services:
   music-manager:
     image: ${IMAGE_NAME:-ghcr.io/jb155/music-manager:latest}
     container_name: music_manager
@@ -26,6 +26,7 @@
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
+      - DOCKER_API_VERSION=1.44
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_POLL_INTERVAL=3600
       - WATCHTOWER_LABEL_ENABLE=true
