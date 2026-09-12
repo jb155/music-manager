@@ -1,0 +1,21 @@
+services:
+  music-manager:
+    container_name: music_manager
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8085}:8085"
+    environment:
+      - MUSIC_DIR=/music
+      - NEW_MUSIC_DIR=/music_new
+      - BEETSDIR=/config/beets
+      - PYTHONUNBUFFERED=1
+      - PREVIEW_DIR=/.music_preview
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://192.168.178.31:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3.5:9b}
+    volumes:
+      - ./app:/app/app
+      - ${MUSIC_PATH:-/srv/dev-disk-by-uuid-5c92a2d3-bb90-43b8-9626-372dd587ab8b/Music}:/music
+      - ${NEW_MUSIC_PATH:-/srv/dev-disk-by-uuid-5c92a2d3-bb90-43b8-9626-372dd587ab8b/Music_New}:/music_new
+      - ${PREVIEW_PATH:-/srv/dev-disk-by-uuid-5c92a2d3-bb90-43b8-9626-372dd587ab8b/.music_preview}:/.music_preview
+      - ${CONFIG_PATH:-./config}:/config

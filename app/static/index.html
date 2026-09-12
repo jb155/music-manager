@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Music Manager Web</title>
+    <link rel="stylesheet" href="/static/style.css?v=1.7.2">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="navbar">
+            <div class="brand">
+                <div class="logo-icon"><i class="fa-solid fa-music"></i></div>
+                <div>
+                    <h1>Music Manager</h1>
+                    <span class="version-tag">SpotDL + Beets + Local Ollama AI</span>
+                </div>
+            </div>
+            
+            <div class="header-stats">
+                <div class="theme-selector-wrap" title="Switch visual color theme">
+                    <label for="theme-select"><i class="fa-solid fa-palette"></i></label>
+                    <select id="theme-select" class="theme-select-dropdown">
+                        <option value="vintage_hifi">📻 Vintage Hi-Fi</option>
+                        <option value="nordic_studio">🎛️ Nordic Studio</option>
+                        <option value="emerald_lounge">🎷 Emerald Lounge</option>
+                        <option value="acid_tokyo">⚡ Acid Tokyo</option>
+                        <option value="boutique_synth">🍷 Boutique Synth</option>
+                        <option value="midnight_cyan">🌌 Midnight Cyan</option>
+                    </select>
+                </div>
+                <div class="stat-pill" id="stat-tracks"><i class="fa-solid fa-compact-disc"></i> <span>-- Tracks</span></div>
+                <div class="stat-pill" id="stat-albums"><i class="fa-solid fa-record-vinyl"></i> <span>-- Albums</span></div>
+                <div class="stat-pill" id="stat-size"><i class="fa-solid fa-hard-drive"></i> <span>-- GB</span></div>
+                <div class="status-badge idle" id="system-status"><span class="dot"></span> <span class="status-text">Idle</span></div>
+            </div>
+        </header>
+
+        
+        <!-- Shared Ollama AI Control Bar (accessible across AI Recommendations & Playlist Creator) -->
+        <div class="ollama-control-bar glass-bar" id="ollama-control-bar">
+            <div class="ollama-server-controls">
+                <span class="status-pill" id="ollama-connection-pill"><i class="fa-solid fa-circle-nodes"></i> Checking Ollama...</span>
+                <div class="control-group">
+                    <label for="ollama-server-select"><i class="fa-solid fa-server"></i> Server:</label>
+                    <select id="ollama-server-select" class="select-control" title="Select active Ollama server"></select>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-scan-ollama" title="Scan local network for running Ollama instances">
+                    <i class="fa-solid fa-satellite-dish"></i> Scan Network
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-add-ollama" title="Manually add Ollama server IP or URL">
+                    <i class="fa-solid fa-plus"></i> Add IP
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-remove-ollama" title="Remove current server from remembered list" style="padding: 6px 9px;">
+                    <i class="fa-solid fa-trash-can"></i>
+                </button>
+            </div>
+            <div class="ollama-model-controls">
+                <div class="control-group">
+                    <label for="ai-model-select"><i class="fa-solid fa-brain"></i> Model:</label>
+                    <select id="ai-model-select" class="select-control" title="Choose AI Model"></select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Progress Banner (visible when task running) -->
+        <div class="progress-banner" id="progress-banner" style="display: none;">
+            <div class="progress-info">
+                <div class="progress-header">
+                    <div class="spinner-sm"></div>
+                    <h4 id="progress-action">Running...</h4>
+                    <span class="progress-percent" id="progress-percent">0%</span>
+                    <button type="button" class="btn btn-danger btn-sm btn-abort" id="btn-abort-task" title="Stop and abort the running operation immediately">
+                        <i class="fa-solid fa-ban"></i> Stop / Abort
+                    </button>
+                </div>
+                <p class="progress-message" id="progress-message">Initializing...</p>
+            </div>
+            <div class="progress-bar-container">
+                <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%"></div>
+            </div>
+            <div class="progress-counts" id="progress-counts"></div>
+        </div>
+
+        <!-- Main Navigation Tabs -->
+        <nav class="tabs">
+            <button class="tab-btn active" data-tab="download"><i class="fa-solid fa-cloud-arrow-down"></i> Download</button>
+            <button class="tab-btn" data-tab="library"><i class="fa-solid fa-record-vinyl"></i> Library</button>
+            <button class="tab-btn" data-tab="playlist"><i class="fa-solid fa-list-ol"></i> Playlist Creator</button>
+            <button class="tab-btn" data-tab="recommendations"><i class="fa-solid fa-wand-magic-sparkles"></i> AI Recommendations</button>
+            <button class="tab-btn" data-tab="missing"><i class="fa-solid fa-magnifying-glass-chart"></i> Missing Tracks <span class="badge" id="missing-badge">0</span></button>
+            <button class="tab-btn" data-tab="staging"><i class="fa-solid fa-box-archive"></i> Staging & Import <span class="badge" id="staging-badge">0</span></button>
+            <button class="tab-btn" data-tab="terminal"><i class="fa-solid fa-terminal"></i> Live Console</button>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="content-body">
+            <!-- TAB 1: DOWNLOAD -->
+            <section class="tab-pane active" id="pane-download">
+                <div class="card glass">
+                    <div class="card-header">
+                        <h2><i class="fa-solid fa-cloud-arrow-down"></i> Quick Music Downloader</h2>
+                        <p class="subtitle">Download individual tracks, full albums, or playlists using Spotify links or freeform artist/title queries. Automatically falls back to YouTube & yt-dlp if needed.</p>
+                    </div>
+
+                    <form id="download-form" class="mt-3">
+                        <div class="input-group">
+                            <i class="fa-brands fa-spotify input-icon"></i>
+                            <input type="text" id="download-query" placeholder="e.g. https://open.spotify.com/track/... or 'Pink Floyd - Time'" required autofocus>
+                            <button type="submit" class="btn btn-primary" id="btn-start-download"><i class="fa-solid fa-arrow-down"></i> Download</button>
+                        </div>
+
+                        <div class="options-row">
+                            <label class="toggle-control">
+                                <input type="checkbox" id="auto-import-toggle" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="label-text">Auto-import into library</span>
+                            </label>
+
+                            <label class="toggle-control">
+                                <input type="checkbox" id="auto-complete-toggle" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="label-text"><i class="fa-solid fa-compact-disc"></i> Auto-complete album (download missing tracks)</span>
+                            </label>
+
+                            <div class="retries-picker">
+                                <label for="max-retries-input">Max Retries:</label>
+                                <select id="max-retries-input" class="select-control">
+                                    <option value="1">1 attempt</option>
+                                    <option value="3" selected>3 attempts</option>
+                                    <option value="5">5 attempts</option>
+                                </select>
+                            </div>
+                        </div>
+                    </form>
+                    <!-- Dynamic Artist Discovery & Discography Checklist Container -->
+                    <div class="artist-discography-section mt-4" id="artist-discography-section" style="display: none;"></div>
+                </div>
+            </section>
+
+                        <!-- TAB: LIBRARY BROWSER -->
+            <section class="tab-pane" id="pane-library">
+                <div class="card glass">
+                    <div class="card-header flex-between">
+                        <div>
+                            <h2><i class="fa-solid fa-record-vinyl"></i> Music Vault Explorer</h2>
+                            <p class="subtitle">Search, filter, preview, and explore your complete library by Artist, Album, or Track.</p>
+                        </div>
+                        <div class="action-buttons flex-align-center" style="display: flex; align-items: center; gap: 12px;">
+                            <div class="view-mode-toggle btn-group">
+                                <button type="button" class="btn btn-sm btn-secondary active" id="btn-lib-view-hierarchy" title="Artist -> Album -> Songs Hierarchy">
+                                    <i class="fa-solid fa-sitemap"></i> Artist View
+                                </button>
+                                <button type="button" class="btn btn-sm btn-secondary" id="btn-lib-view-table" title="Flat Track Table">
+                                    <i class="fa-solid fa-table-list"></i> Table View
+                                </button>
+                            </div>
+                            <span class="count-indicator" id="library-total-count">0 artists</span>
+                        </div>
+                    </div>
+
+                    <!-- Search & Filter Controls -->
+                    <div class="library-filter-bar mt-3">
+                        <div class="search-input-wrap">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" id="library-search" placeholder="Search title, artist, or album..." class="search-input">
+                        </div>
+                        <div class="filter-group">
+                            <label for="library-filter-genre"><i class="fa-solid fa-tags"></i> Genre:</label>
+                            <select id="library-filter-genre" class="select-control">
+                                <option value="">All Genres</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="library-filter-decade"><i class="fa-solid fa-calendar"></i> Era:</label>
+                            <select id="library-filter-decade" class="select-control">
+                                <option value="">All Eras</option>
+                                <option value="2020">2020s</option>
+                                <option value="2010">2010s</option>
+                                <option value="2000">2000s</option>
+                                <option value="1990">1990s</option>
+                                <option value="1980">1980s</option>
+                                <option value="1970">1970s</option>
+                                <option value="1960">1960s</option>
+                                <option value="1950">1950s</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="library-sort-by"><i class="fa-solid fa-arrow-down-wide-short"></i> Sort:</label>
+                            <select id="library-sort-by" class="select-control">
+                                <option value="artist">Artist</option>
+                                <option value="title">Title</option>
+                                <option value="album">Album</option>
+                                <option value="year">Year</option>
+                                <option value="added">Recently Added</option>
+                            </select>
+                            <button type="button" class="btn btn-secondary btn-sm" id="library-sort-order" title="Toggle Ascending / Descending">
+                                <i class="fa-solid fa-arrow-up-a-z"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- View 1: Artist -> Album -> Songs Hierarchy View (Default) -->
+                    <div id="library-hierarchy-container" class="mt-3">
+                        <div class="library-artists-list" id="library-artists-list">
+                            <!-- Artists loaded dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- View 2: Classic Flat Track Table View -->
+                    <div id="library-table-container" class="table-container mt-3" style="display: none;">
+                        <table class="data-table" id="library-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 45px; text-align: center;">Play</th>
+                                    <th>Title</th>
+                                    <th>Artist</th>
+                                    <th>Album</th>
+                                    <th>Genre</th>
+                                    <th style="width: 65px; text-align: center;">Year</th>
+                                    <th style="width: 70px; text-align: center;">Time</th>
+                                    <th class="text-right" style="width: 130px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="library-tbody">
+                                <tr>
+                                    <td colspan="8" class="text-center text-muted" style="padding: 30px;">
+                                        <i class="fa-solid fa-spinner fa-spin" style="font-size: 1.5rem; margin-bottom: 10px; display: block;"></i>
+                                        Loading library tracks...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pagination -->
+                    <div class="pagination-bar mt-3 flex-between">
+                        <div class="pagination-info" id="library-page-info">
+                            Showing page 1
+                        </div>
+                        <div class="pagination-buttons">
+                            <button type="button" class="btn btn-secondary btn-sm" id="library-prev-page" disabled>
+                                <i class="fa-solid fa-chevron-left"></i> Previous
+                            </button>
+                            <span class="pagination-current-page" id="library-current-page-badge">1</span>
+                            <button type="button" class="btn btn-secondary btn-sm" id="library-next-page">
+                                Next <i class="fa-solid fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: PLAYLIST CREATOR -->
+            <section class="tab-pane" id="pane-playlist">
+                <div class="card glass">
+                    <div class="card-header flex-between">
+                        <div>
+                            <h2><i class="fa-solid fa-list-ol"></i> Smart Playlist Creator</h2>
+                            <p class="subtitle">Generate balanced, personalized playlists from your library with tied duration & song controls, multiple generation algorithms, and direct ZIP or M3U8 exports.</p>
+                        </div>
+                        <div class="action-buttons">
+                            <button class="btn btn-secondary btn-sm" id="btn-sanitize-library" title="Prune dead entries, clean duplicate files, and normalize paths">
+                                <i class="fa-solid fa-broom"></i> Clean & Deduplicate
+                            </button>
+                            <button class="btn btn-secondary btn-sm" id="btn-tag-genres" title="Run full library genre tagging & ID3 updating across all tracks">
+                                <i class="fa-solid fa-tags"></i> Tag All Genres
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 1. Length Stipulation (Time & Song Count Tied Bi-directionally) -->
+                    <div class="playlist-length-box mt-3">
+                        <div class="length-header">
+                            <span class="section-title"><i class="fa-solid fa-stopwatch"></i> Playlist Length & Duration Limits</span>
+                            <div class="limit-by-selector">
+                                <span class="text-muted text-xs">Primary Target:</span>
+                                <label class="radio-label">
+                                    <input type="radio" name="playlist-limit-by" value="time" checked> Target Time
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="playlist-limit-by" value="songs"> Exact Track Count
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="tied-controls-grid mt-2">
+                            <!-- Duration Column -->
+                            <div class="tied-column">
+                                <div class="tied-label-row">
+                                    <label for="playlist-time-input"><i class="fa-regular fa-clock"></i> Target Duration:</label>
+                                    <span class="tied-badge" id="playlist-time-display">60 min (1h 00m)</span>
+                                </div>
+                                <div class="tied-input-wrap">
+                                    <input type="range" id="playlist-time-slider" min="10" max="360" step="5" value="60" class="tied-slider">
+                                    <div class="input-with-unit">
+                                        <input type="number" id="playlist-time-input" min="5" max="720" step="5" value="60">
+                                        <span class="unit">min</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Link / Tied Indicator -->
+                            <div class="tied-link-indicator" title="Duration and Song Count are dynamically synchronized based on your library average song length (~4.0 min)">
+                                <i class="fa-solid fa-link"></i>
+                                <span class="link-tag">TIED</span>
+                            </div>
+
+                            <!-- Song Count Column -->
+                            <div class="tied-column">
+                                <div class="tied-label-row">
+                                    <label for="playlist-songs-input"><i class="fa-solid fa-music"></i> Estimated Tracks:</label>
+                                    <span class="tied-badge" id="playlist-songs-display">15 songs</span>
+                                </div>
+                                <div class="tied-input-wrap">
+                                    <input type="range" id="playlist-songs-slider" min="3" max="90" step="1" value="15" class="tied-slider">
+                                    <div class="input-with-unit">
+                                        <input type="number" id="playlist-songs-input" min="2" max="250" step="1" value="15">
+                                        <span class="unit">songs</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tied-hint text-xs text-muted mt-1">
+                            <i class="fa-solid fa-circle-info"></i> Adjusting duration updates the estimated track count and vice-versa, calibrated to your library's actual average track length (~<span id="lib-avg-len">4.0</span> min/song).
+                        </div>
+                    </div>
+
+                    <!-- 2. Playlist Generator System Selection -->
+                    <div class="playlist-systems-box mt-4">
+                        <span class="section-title"><i class="fa-solid fa-sliders"></i> Generation System</span>
+                        <div class="system-pills mt-2">
+                            <button type="button" class="btn-system active" data-system="genre_combo">
+                                <i class="fa-solid fa-layer-group"></i> Combo of Genres
+                            </button>
+                            <button type="button" class="btn-system" data-system="random">
+                                <i class="fa-solid fa-shuffle"></i> Smart Shuffle (Downloaded)
+                            </button>
+                            <button type="button" class="btn-system" data-system="ai">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> AI Curator (Ollama)
+                            </button>
+                            <button type="button" class="btn-system" data-system="decade">
+                                <i class="fa-solid fa-calendar-days"></i> Decade Journey
+                            </button>
+                            <button type="button" class="btn-system" data-system="artist_seed">
+                                <i class="fa-solid fa-seedling"></i> Artist Seed & Flow
+                            </button>
+                            <button type="button" class="btn-system" data-system="venn">
+                                <i class="fa-solid fa-circle-nodes"></i> Venn Overlap
+                            </button>
+                        </div>
+
+                        <!-- System Panel 1: Genre Combo -->
+                        <div class="system-panel active mt-3" id="panel-genre_combo">
+                            <div class="panel-desc text-muted text-xs mb-2">
+                                Select one or more genres from your library. The algorithm combines and blends tracks to match your target length.
+                            </div>
+                            <div class="chip-filter-row mb-2">
+                                <div class="input-with-icon-sm">
+                                    <i class="fa-solid fa-magnifying-glass"></i>
+                                    <input type="text" id="filter-genre-chips" placeholder="Filter detected genres..." class="chip-search-input">
+                                </div>
+                            </div>
+                            <div class="genre-chips-container" id="playlist-genre-chips">
+                                <span class="text-muted"><i class="fa-solid fa-spinner fa-spin"></i> Loading library genres...</span>
+                            </div>
+                            <div class="blend-mode-row mt-3">
+                                <span class="blend-label text-xs">Blend Style:</span>
+                                <label class="radio-label">
+                                    <input type="radio" name="blend-mode" value="interleaved" checked>
+                                    <strong>Interleaved</strong> (Alternating: A, B, C, A, B, C...)
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="blend-mode" value="shuffled">
+                                    <strong>Shuffled</strong> (Organic random mix)
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="blend-mode" value="grouped">
+                                    <strong>Grouped</strong> (All of A, then all of B...)
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- System Panel 2: Smart Shuffle (Downloaded Music) -->
+                        <div class="system-panel mt-3" id="panel-random" style="display: none;">
+                            <div class="panel-desc text-muted text-xs mb-2">
+                                Curates a high-quality shuffle across your downloaded music vault.
+                            </div>
+                            <div class="options-row mt-2">
+                                <label class="toggle-control">
+                                    <input type="checkbox" id="shuffle-diversity-toggle" checked>
+                                    <span class="toggle-slider"></span>
+                                    <span class="label-text"><strong>Smart Artist Spacing</strong> (Guarantees no consecutive tracks from the same artist)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- System Panel 3: AI Curator (Ollama) -->
+                        <div class="system-panel mt-3" id="panel-ai" style="display: none;">
+                            <div class="panel-desc text-muted text-xs mb-2">
+                                Leverages your connected Ollama server & model to design a cohesive thematic playlist, matching selections back against your actual library files.
+                            </div>
+                            <div class="ai-prompt-presets mt-2">
+                                <span class="text-muted text-xs">Quick Vibe Prompts:</span>
+                                <div class="prompt-chips mt-1">
+                                    <button type="button" class="btn-prompt-chip" data-prompt="Late night highway drive with deep bass and atmospheric guitars">Night Drive</button>
+                                    <button type="button" class="btn-prompt-chip" data-prompt="High-energy rock workout mix with driving tempos and epic choruses">Workout Anthems</button>
+                                    <button type="button" class="btn-prompt-chip" data-prompt="Sunday morning acoustic coffee shop vibe with blues and folk">Acoustic Morning</button>
+                                    <button type="button" class="btn-prompt-chip" data-prompt="Psychedelic electronic journey with hypnotic basslines and progressive build-ups">Psychedelic Bass</button>
+                                    <button type="button" class="btn-prompt-chip" data-prompt="Storytelling narrative indie rock with witty lyrics and upbeat rhythm">Narrative Indie</button>
+                                </div>
+                            </div>
+                            <div class="input-group mt-2">
+                                <i class="fa-solid fa-wand-sparkles input-icon"></i>
+                                <input type="text" id="playlist-ai-prompt" placeholder="Describe the vibe, occasion, or theme (e.g. 'Stoner rock with desert grooves for a road trip')">
+                            </div>
+                        </div>
+
+                        <!-- System Panel 4: Decade Journey -->
+                        <div class="system-panel mt-3" id="panel-decade" style="display: none;">
+                            <div class="panel-desc text-muted text-xs mb-2">
+                                Time-travel across eras represented in your collection.
+                            </div>
+                            <div class="decade-chips-container" id="playlist-decade-chips">
+                                <span class="text-muted"><i class="fa-solid fa-spinner fa-spin"></i> Loading eras...</span>
+                            </div>
+                            <div class="options-row mt-3">
+                                <label class="toggle-control">
+                                    <input type="checkbox" id="decade-chrono-toggle" checked>
+                                    <span class="toggle-slider"></span>
+                                    <span class="label-text"><strong>Chronological Time-Travel</strong> (Plays older eras first, progressing toward modern tracks)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- System Panel 5: Artist Seed & Flow -->
+                        <div class="system-panel mt-3" id="panel-artist_seed" style="display: none;">
+                            <div class="panel-desc text-muted text-xs mb-2">
+                                Choose anchor artists from your library. The system will interleave them with sonically and genre-adjacent artists in your collection.
+                            </div>
+                            <div class="chip-filter-row mb-2">
+                                <div class="input-with-icon-sm">
+                                    <i class="fa-solid fa-magnifying-glass"></i>
+                                    <input type="text" id="filter-artist-chips" placeholder="Filter all detected artists..." class="chip-search-input">
+                                </div>
+                            </div>
+                            <div class="seed-artists-container" id="playlist-seed-artists">
+                                <span class="text-muted"><i class="fa-solid fa-spinner fa-spin"></i> Loading top artists...</span>
+                            </div>
+                        </div>
+
+                        <!-- System Panel 6: Venn Overlap (Dynamic 1 to 4 Circles) -->
+                        <div class="system-panel mt-3" id="panel-venn" style="display: none;">
+                            <div class="panel-desc text-muted text-xs mb-2">
+                                Explore sonic crossovers, fusions, and musical bridges. Add 1 to 4 circles (e.g. Rock, Electronic, Rap), inspect live overlap, and adjust dynamically.
+                            </div>
+
+                            <!-- Controls Toolbar: Mode Switcher + Add Circle Button -->
+                            <div class="venn-toolbar mb-3 flex-between">
+                                <div class="venn-type-pills">
+                                    <button type="button" class="btn-venn-type active" data-type="genre_genre">
+                                        <i class="fa-solid fa-tags"></i> Genre ∩ Genre
+                                    </button>
+                                    <button type="button" class="btn-venn-type" data-type="artist_artist">
+                                        <i class="fa-solid fa-guitar"></i> Artist Bridge
+                                    </button>
+                                    <button type="button" class="btn-venn-type" data-type="genre_decade">
+                                        <i class="fa-solid fa-calendar-check"></i> Genre ∩ Decade
+                                    </button>
+                                </div>
+                                <button type="button" class="btn btn-secondary btn-sm" id="btn-add-venn-circle" title="Add another circle to the Venn intersection (up to 4)">
+                                    <i class="fa-solid fa-plus"></i> Add Circle <span class="badge" id="venn-circle-count-badge" style="font-size: 11px;">2/4</span>
+                                </button>
+                            </div>
+
+                            <!-- Dynamic Circle Inputs Grid -->
+                            <div class="venn-circles-grid" id="venn-circles-container">
+                                <!-- Dynamically rendered by app.js -->
+                            </div>
+
+                            <datalist id="venn-datalist-genres"></datalist>
+                            <datalist id="venn-datalist-artists"></datalist>
+                            <datalist id="venn-datalist-decades"></datalist>
+
+                            <!-- Interactive Glowing SVG Venn Diagram -->
+                            <div class="venn-diagram-card mt-3">
+                                <div class="venn-svg-wrap" id="venn-svg-wrap">
+                                    <!-- Dynamic SVG rendered by renderVennSvg() -->
+                                </div>
+                                <div class="venn-stats-bar mt-2">
+                                    <div class="venn-stat-pill" id="venn-stat-core">
+                                        <i class="fa-solid fa-bullseye"></i>
+                                        <span>Core Sweet Spot:</span>
+                                        <strong id="venn-core-num">0 tracks</strong>
+                                    </div>
+                                    <div class="venn-stat-pill" id="venn-stat-union">
+                                        <i class="fa-solid fa-layer-group"></i>
+                                        <span>Total Combined Pool:</span>
+                                        <strong id="venn-union-num">0 tracks</strong>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Interactive Selectable Overlap Regions & Circles -->
+                            <div class="venn-regions-panel mt-3">
+                                <div class="venn-regions-header flex-between mb-2">
+                                    <span class="text-xs text-muted" style="font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                                        <i class="fa-solid fa-hand-pointer" style="color: #a855f7;"></i> Select Region to Target for Playlist:
+                                    </span>
+                                    <span class="badge badge-purple" id="venn-selected-region-badge" style="font-size: 11px;">Sweet Spot</span>
+                                </div>
+                                <div class="venn-regions-grid" id="venn-regions-container">
+                                    <!-- Dynamically populated with interactive selectable region chips -->
+                                </div>
+                            </div>
+
+                            <!-- Venn Slicing Mode Options -->
+                            <div class="venn-slice-options mt-3">
+                                <span class="text-xs text-muted mb-1 d-block">Curator Output Style:</span>
+                                <div class="venn-radio-group">
+                                    <label class="radio-label active-slice">
+                                        <input type="radio" name="venn-slice" value="overlap_only" checked>
+                                        <span class="slice-pill-content">
+                                            <i class="fa-solid fa-bullseye"></i>
+                                            <strong>Core Sweet Spot (All Circles)</strong>
+                                            <small>Only tracks sharing all selected attributes</small>
+                                        </span>
+                                    </label>
+                                    <label class="radio-label">
+                                        <input type="radio" name="venn-slice" value="journey">
+                                        <span class="slice-pill-content">
+                                            <i class="fa-solid fa-route"></i>
+                                            <strong>Harmonic Journey</strong>
+                                            <small>Sequenced transition through each circle</small>
+                                        </span>
+                                    </label>
+                                    <label class="radio-label">
+                                        <input type="radio" name="venn-slice" value="balanced">
+                                        <span class="slice-pill-content">
+                                            <i class="fa-solid fa-scale-balanced"></i>
+                                            <strong>Balanced Blend</strong>
+                                            <small>Interleaved mix across all active circles</small>
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Action / Generation Bar -->
+                    <div class="playlist-action-bar mt-4 flex-between">
+                        <div class="playlist-name-input-wrap">
+                            <label for="playlist-title-input"><i class="fa-solid fa-pen"></i> Playlist Name:</label>
+                            <div class="playlist-title-input-row" style="display: flex; gap: 6px; align-items: center;">
+                                <input type="text" id="playlist-title-input" value="" placeholder="Auto-generated or custom name..." style="flex: 1;">
+                                <button type="button" class="btn-icon" id="btn-reroll-playlist-title" title="Suggest another relevant playlist name" style="display: none; height: 38px; width: 38px;">
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-primary" id="btn-generate-playlist">
+                            <i class="fa-solid fa-sparkles"></i> Generate Playlist
+                        </button>
+                    </div>
+
+                    <!-- 4. Interactive Playlist Preview & Export Card -->
+                    <div class="playlist-preview-section mt-4" id="playlist-preview-section" style="display: none;">
+                        <div class="preview-header flex-between">
+                            <div class="preview-summary">
+                                <h3><i class="fa-solid fa-circle-check" style="color: var(--primary);"></i> <span id="preview-playlist-title">My Awesome Mix</span></h3>
+                                <div class="summary-metrics mt-1">
+                                    <span class="metric-pill" id="preview-track-count"><i class="fa-solid fa-music"></i> 0 Tracks</span>
+                                    <span class="metric-pill" id="preview-duration"><i class="fa-regular fa-clock"></i> 0m 0s</span>
+                                    <span class="metric-pill" id="preview-size"><i class="fa-solid fa-hard-drive"></i> 0 MB</span>
+                                </div>
+                            </div>
+                            <div class="preview-actions">
+                                <button type="button" class="btn btn-secondary btn-sm" id="btn-playlist-shuffle" title="Randomize track order">
+                                    <i class="fa-solid fa-shuffle"></i> Shuffle
+                                </button>
+                                <button type="button" class="btn btn-secondary btn-sm" id="btn-playlist-clear" title="Clear tracklist">
+                                    <i class="fa-solid fa-trash-can"></i> Clear
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Export Bar (M3U8, PLS, JSON, and ZIPPED AUDIO FILES) -->
+                        <div class="export-bar mt-3">
+                            <div class="export-label"><i class="fa-solid fa-cloud-arrow-down"></i> Export & Download:</div>
+                            <div class="export-btn-group">
+                                <button type="button" class="btn btn-secondary btn-sm" id="btn-export-m3u8" title="Download UTF-8 M3U playlist file for VLC, Winamp, phone">
+                                    <i class="fa-solid fa-file-audio"></i> .M3U8 Playlist
+                                </button>
+                                <button type="button" class="btn btn-secondary btn-sm" id="btn-export-pls" title="Download Shoutcast PLS playlist file">
+                                    <i class="fa-solid fa-list-check"></i> .PLS Playlist
+                                </button>
+                                <button type="button" class="btn btn-secondary btn-sm" id="btn-export-json" title="Download structured JSON playlist metadata">
+                                    <i class="fa-solid fa-code"></i> .JSON
+                                </button>
+                                <button type="button" class="btn btn-accent btn-sm" id="btn-export-zip" title="Package and download a ZIP file containing the actual song files + M3U8!">
+                                    <i class="fa-solid fa-file-zipper"></i> Download ZIP (Audio Files)
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Tracks Table -->
+                        <div class="table-container mt-3">
+                            <table class="data-table" id="playlist-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 35px;">#</th>
+                                        <th style="width: 45px; text-align: center;">Play</th>
+                                        <th>Title</th>
+                                        <th>Artist</th>
+                                        <th>Album</th>
+                                        <th>Genre</th>
+                                        <th>Duration</th>
+                                        <th class="text-right" style="width: 50px;">Remove</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="playlist-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: AI RECOMMENDATIONS -->
+            <section class="tab-pane" id="pane-recommendations">
+                <div class="card glass">
+                    <div class="card-header flex-between">
+                        <div>
+                            <h2><i class="fa-solid fa-wand-magic-sparkles"></i> AI Music Recommendations</h2>
+                            <p class="subtitle">Personalized artist & album discovery grounded in your actual Beets library and powered by Ollama.</p>
+                        </div>
+                    </div>
+
+<!-- Ollama system controls are shared globally above -->
+
+                    <!-- Taste Profile Chips -->
+                    <div class="taste-profile-banner mt-3" id="taste-profile-summary">
+                        <div class="taste-title"><i class="fa-solid fa-chart-pie"></i> Your Library Anchor Artists:</div>
+                        <div class="profile-chips" id="profile-artist-chips">
+                            <span class="text-muted"><i class="fa-solid fa-spinner fa-spin"></i> Analyzing library profile...</span>
+                        </div>
+                    </div>
+
+                    <!-- Preset Filters & Custom Prompt -->
+                    <div class="recommendation-controls mt-3">
+                        <div class="preset-label text-muted">Pick a style focus or use full library mix:</div>
+                        <div class="preset-pills mt-2">
+                            <button class="btn-preset active" data-preset="all"><i class="fa-solid fa-music"></i> Complete Library Mix</button>
+                            <button class="btn-preset" data-preset="narrative"><i class="fa-solid fa-book-open"></i> Narrative Indie (Rare Americans / Good Kid)</button>
+                            <button class="btn-preset" data-preset="blues_swagger"><i class="fa-solid fa-fire"></i> Swagger & Blues-Rock (The Heavy / Jack White)</button>
+                            <button class="btn-preset" data-preset="psytrance"><i class="fa-solid fa-bolt"></i> Psytrance & Bass (Infected Mushroom)</button>
+                            <button class="btn-preset" data-preset="classic_prog"><i class="fa-solid fa-compact-disc"></i> Classic & Prog Rock (Pink Floyd / CCR)</button>
+                            <button class="btn-preset" data-preset="wildcard"><i class="fa-solid fa-dice"></i> Wildcard / Hidden Gems</button>
+                        </div>
+
+                        <div class="input-group mt-3">
+                            <i class="fa-solid fa-compass input-icon"></i>
+                            <input type="text" id="ai-custom-prompt" placeholder="Optional custom direction: e.g. 'Upbeat driving songs for road trips' or 'Fuzzy basslines & storytelling'">
+                            <button type="button" class="btn btn-primary" id="btn-generate-recs"><i class="fa-solid fa-sparkles"></i> Generate Recommendations</button>
+                        </div>
+                    </div>
+
+                    <!-- Recommendations Grid Container -->
+                    <div class="recommendations-container mt-4" id="recommendations-container">
+                        <div class="empty-state text-center text-muted" id="recs-placeholder">
+                            <i class="fa-solid fa-wand-magic-sparkles fa-3x mb-2" style="opacity: 0.35;"></i>
+                            <p>Select a taste focus above and click <strong>"Generate Recommendations"</strong>.</p>
+                            <p class="text-xs" style="opacity: 0.7;">Recommendations are generated on-the-fly via Ollama on your local network.</p>
+                        </div>
+                        <div class="recs-loading" id="recs-loading" style="display: none;">
+                            <div class="spinner" style="margin: 30px auto;"></div>
+                            <p class="text-center">Consulting Ollama AI with your library profile...</p>
+                        </div>
+                        
+                        <!-- Action Bar for All Recommendations -->
+                        <div class="recs-action-bar mt-3" id="recs-action-bar" style="display: none;">
+                            <div class="recs-count-indicator">
+                                <i class="fa-solid fa-sparkles" style="color: var(--primary);"></i>
+                                <span id="recs-count-text">0 artists recommended</span>
+                            </div>
+                            <div class="recs-action-right">
+                                <label class="toggle-control recs-toggle">
+                                    <input type="checkbox" id="recs-auto-complete-toggle">
+                                    <span class="toggle-slider"></span>
+                                    <span class="label-text"><i class="fa-solid fa-compact-disc"></i> Auto-complete albums</span>
+                                </label>
+                                <button class="btn btn-primary" id="btn-download-all-recs">
+                                    <i class="fa-solid fa-cloud-arrow-down"></i> Download All Recommendations (<span id="recs-track-count">0</span> tracks)
+                                </button>
+                            </div>
+                        </div>
+                        <div class="recs-grid" id="recs-grid" style="display: none;"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3: MISSING TRACKS -->
+            <section class="tab-pane" id="pane-missing">
+                <div class="card glass">
+                    <div class="card-header flex-between">
+                        <div>
+                            <h2><i class="fa-solid fa-list-check"></i> Library Missing Tracks Finder</h2>
+                            <p class="subtitle">Identifies incomplete albums in your Beets library using MusicBrainz release diffs, and allows 1-click or automated batch downloading.</p>
+                        </div>
+                        <div class="action-buttons">
+                            <select id="missing-scan-depth" class="select-control">
+                                <option value="25">Scan Top 25 Incomplete</option>
+                                <option value="50" selected>Scan Top 50 Incomplete</option>
+                                <option value="100">Scan Top 100 Incomplete</option>
+                            </select>
+                            <button class="btn btn-secondary" id="btn-scan-missing"><i class="fa-solid fa-arrows-rotate"></i> Scan Library</button>
+                            <button class="btn btn-primary" id="btn-download-all-missing" disabled><i class="fa-solid fa-cloud-arrow-down"></i> Download All Missing</button>
+                        </div>
+                    </div>
+
+                    <div class="table-filter-bar mt-3">
+                        <input type="text" id="missing-search" placeholder="Filter by artist, track title, or album..." class="search-input">
+                        <span class="count-indicator" id="missing-count-text">0 missing tracks cataloged</span>
+                    </div>
+
+                    <div class="table-container mt-2">
+                        <table class="data-table" id="missing-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 45px; text-align: center;">Preview</th>
+                                    <th>Artist</th>
+                                    <th>Album</th>
+                                    <th>#</th>
+                                    <th>Missing Title</th>
+                                    <th class="text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="missing-tbody">
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted">Click "Scan Library" to query Beets database for incomplete albums.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: STAGING & IMPORT -->
+            <section class="tab-pane" id="pane-staging">
+                <div class="card glass">
+                    <div class="card-header flex-between">
+                        <div>
+                            <h2><i class="fa-solid fa-folder-open"></i> Staging Directory (<code>Music_New</code>)</h2>
+                            <p class="subtitle">Manage newly downloaded files before cataloging and organizing them into your permanent music vault.</p>
+                        </div>
+                        <div class="action-buttons">
+                            <button class="btn btn-secondary" id="btn-refresh-staging"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
+                            <button class="btn btn-primary" id="btn-run-import"><i class="fa-solid fa-folder-tree"></i> 1-Click Beets Import</button>
+                            <button class="btn" id="btn-fetch-art" style="background: rgba(168, 85, 247, 0.2); border: 1px solid rgba(168, 85, 247, 0.4); color: #c084fc;"><i class="fa-solid fa-image"></i> Fetch Album Art</button>
+                        </div>
+                    </div>
+
+                    <div class="staging-overview mt-3">
+                        <div class="overview-box">
+                            <i class="fa-solid fa-file-audio"></i>
+                            <div>
+                                <span class="metric" id="staging-files-count">0</span>
+                                <span class="metric-label">Files in Staging</span>
+                            </div>
+                        </div>
+                        <div class="overview-box">
+                            <i class="fa-solid fa-hard-drive"></i>
+                            <div>
+                                <span class="metric" id="staging-total-size">0 MB</span>
+                                <span class="metric-label">Total Size</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="table-container mt-3">
+                        <table class="data-table" id="staging-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 45px; text-align: center;">Preview</th>
+                                    <th>Filename / Path</th>
+                                    <th>Type</th>
+                                    <th>Size</th>
+                                </tr>
+                            </thead>
+                            <tbody id="staging-tbody">
+                                <tr>
+                                    <td colspan="4" class="text-center text-muted">Staging directory is currently empty.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 5: TERMINAL CONSOLE -->
+            <section class="tab-pane" id="pane-terminal">
+                <div class="card glass terminal-wrapper">
+                    <div class="terminal-header">
+                        <div class="terminal-dots">
+                            <span class="t-dot red"></span>
+                            <span class="t-dot yellow"></span>
+                            <span class="t-dot green"></span>
+                        </div>
+                        <span class="terminal-title"><i class="fa-solid fa-terminal"></i> Live Output Log (Server-Sent Events)</span>
+                        <div class="terminal-actions">
+                            <button type="button" class="btn btn-danger btn-sm btn-abort-console" id="btn-abort-terminal" title="Abort Active Task" style="display: none; padding: 4px 10px; font-size: 12px; margin-right: 6px;">
+                                <i class="fa-solid fa-ban"></i> Abort Task
+                            </button>
+                            <button class="btn-icon" id="btn-clear-terminal" title="Clear Console"><i class="fa-solid fa-trash-can"></i></button>
+                            <button class="btn-icon" id="btn-copy-terminal" title="Copy Output"><i class="fa-solid fa-copy"></i></button>
+                        </div>
+                    </div>
+                    <pre class="terminal-body" id="terminal-output"><span class="log-info">[System] Connecting to live log stream...</span></pre>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Persistent Bottom Audio Player Bar -->
+    <div class="audio-player-bar" id="audio-player-bar" style="display: none;">
+        <div class="player-left">
+            <div class="player-art-wrap" id="player-art-wrap">
+                <div class="player-art-placeholder" id="player-art-placeholder"><i class="fa-solid fa-compact-disc"></i></div>
+                <img id="player-art" src="" alt="Cover Art" style="display: none;">
+                <div class="player-art-badge" id="player-type-badge">30s PREVIEW</div>
+            </div>
+            <div class="player-track-info">
+                <div class="player-title" id="player-title">Track Title</div>
+                <div class="player-artist" id="player-artist">Artist Name</div>
+            </div>
+        </div>
+
+        <div class="player-center">
+            <div class="player-controls">
+                <button type="button" class="player-btn" id="player-btn-prev" title="Previous Track">
+                    <i class="fa-solid fa-backward-step"></i>
+                </button>
+                <button type="button" class="player-btn player-btn-main" id="player-btn-play" title="Play / Pause">
+                    <i class="fa-solid fa-play"></i>
+                </button>
+                <button type="button" class="player-btn" id="player-btn-next" title="Next Track">
+                    <i class="fa-solid fa-forward-step"></i>
+                </button>
+            </div>
+            <div class="player-scrubber-wrap">
+                <span class="player-time" id="player-current-time">0:00</span>
+                <input type="range" id="player-scrubber" min="0" max="100" value="0" step="0.1" class="player-slider">
+                <span class="player-time" id="player-duration">0:30</span>
+            </div>
+        </div>
+
+        <div class="player-right">
+            <div class="player-volume-wrap">
+                <button type="button" class="player-btn-icon" id="player-volume-icon" title="Mute / Unmute">
+                    <i class="fa-solid fa-volume-high"></i>
+                </button>
+                <input type="range" id="player-volume" min="0" max="1" value="0.8" step="0.05" class="player-slider volume-slider">
+            </div>
+            <button type="button" class="player-btn-icon" id="player-btn-close" title="Close Player">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="/static/app.js?v=1.7.2"></script>
+</body>
+</html>

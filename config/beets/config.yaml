@@ -1,0 +1,114 @@
+# ~/.config/beets/config.yaml
+
+directory: /music
+library: /config/beets/library.db
+
+plugins: ftintitle inline missing duplicates fetchart embedart musicbrainz lastgenre
+
+fetchart:
+    auto: yes
+    minwidth: 300
+    maxwidth: 1200
+    enforce_ratio: 0.5%
+    cautious: no
+    cover_names: cover front art album
+    sources: [filesystem, coverart, itunes, amazon, albumart]
+
+embedart:
+    auto: yes
+    remove_art_file: no
+    maxwidth: 1200
+
+import:
+    move: yes
+    write: yes
+    resume: yes
+    quiet_fallback: asis
+    duplicate_action: merge
+    group_albums: yes
+
+missing:
+    count: no
+    format: $albumartist - $title
+
+item_fields:
+    custom_artist: |
+        import re
+        art = ""
+        try:
+            if albumartist: art = albumartist
+        except NameError: pass
+        if not art:
+            try:
+                if artist: art = artist
+            except NameError: pass
+        if not art:
+            art = "Unknown Artist"
+        art = re.split(r'[\s(]+(?:[Ff]eat\.?|[Ff]t\.?|[Ff]eaturing)\s+', art)[0].strip()
+        art = re.split(r'\s+(?:&|,|x|X|×)\s+', art)[0].strip()
+        return art
+
+    custom_track_name: |
+        try: d = disc
+        except NameError: d = 0
+        
+        try: td = totaldiscs
+        except NameError: td = 1
+        
+        disc_str = f"{d}-" if int(td) > 1 else ""
+        
+        try: t = track
+        except NameError: t = 0
+        
+        track_str = f"{t:02d} " if int(t) > 0 else ""
+        
+        tit = "Unknown Title"
+        try:
+            if title: tit = title
+        except NameError: pass
+                
+        return f"{disc_str}{track_str}{tit}"
+
+album_fields:
+    custom_artist: |
+        import re
+        art = ""
+        try:
+            if albumartist: art = albumartist
+        except NameError: pass
+        if not art:
+            try:
+                if artist: art = artist
+            except NameError: pass
+        if not art:
+            art = "Unknown Artist"
+        art = re.split(r'[\s(]+(?:[Ff]eat\.?|[Ff]t\.?|[Ff]eaturing)\s+', art)[0].strip()
+        art = re.split(r'\s+(?:&|,|x|X|×)\s+', art)[0].strip()
+        return art
+        
+    custom_album: |
+        alb = ""
+        try:
+            if album: alb = album
+        except NameError: pass
+        if not alb:
+            alb = "Non-Album"
+        return alb
+
+paths:
+    default: $custom_artist/$custom_album/$custom_track_name
+    singleton: $custom_artist/Non-Album/$custom_track_name
+    comp: Compilations/$custom_album/$custom_track_name
+
+match:
+    strong_rec_thresh: 0.25
+    distance_weights:
+        missing_tracks: 0.0
+
+lastgenre:
+    auto: yes
+    source: album
+    count: 5
+    separator: ", "
+    prefer_specific: yes
+    canonical: yes

@@ -1,0 +1,17 @@
+﻿.git
+.github
+.env
+*.db
+*.pickle
+*.log
+config/beets/library.db
+config/beets/state.pickle
+config/beets/genre_cache.json
+config/beets/missing_cache.json
+config/beets/ollama_servers.json
+.music_preview/
+__pycache__/
+*.pyc
+*.bak
+dist/
+brother-package/
