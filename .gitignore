@@ -1,4 +1,4 @@
-﻿# Personal config & local caches
+# Personal config & local caches
 .env
 *.db*
 *.pickle
@@ -14,3 +14,13 @@ __pycache__/
 *.pyc
 *.bak*
 dist/
+*.zip
+
+# Root scratch and test scripts
+/*.py
+/*.metadata.json
+/app.js
+/index.html
+/style.css
+/downloaded_app.js
+/live_verified_app.js

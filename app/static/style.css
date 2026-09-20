@@ -1025,12 +1025,98 @@ body {
 
 
 .overview-box .metric-label {
-
     font-size: 12px;
-
     color: var(--text-muted);
-
 }
+
+/* ==========================================================================
+   Manual Upload Dropzone & Progress Bar
+   ========================================================================== */
+.upload-dropzone {
+    border: 2px dashed rgba(255, 255, 255, 0.16);
+    border-radius: 14px;
+    padding: 26px 20px;
+    background: rgba(255, 255, 255, 0.02);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+}
+
+.upload-dropzone.dragover {
+    border-color: var(--accent, #38bdf8);
+    background: rgba(56, 189, 248, 0.08);
+    box-shadow: 0 0 24px rgba(56, 189, 248, 0.22);
+    transform: scale(1.006);
+}
+
+.dropzone-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.dropzone-icon i {
+    font-size: 40px;
+    color: var(--accent, #38bdf8);
+    margin-bottom: 10px;
+    transition: transform 0.2s ease;
+}
+
+.upload-dropzone.dragover .dropzone-icon i {
+    transform: translateY(-5px) scale(1.12);
+}
+
+.dropzone-text {
+    color: var(--text-muted, #94a3b8);
+    font-size: 13.5px;
+    margin-bottom: 14px;
+}
+
+.dropzone-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.dropzone-options {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    color: var(--text-normal, #e2e8f0);
+}
+
+.upload-progress-container {
+    width: 100%;
+    max-width: 580px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 10px;
+    padding: 12px 18px;
+    text-align: left;
+}
+
+.upload-progress-container .progress-info {
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.upload-progress-container .progress-track {
+    width: 100%;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.upload-progress-container .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #38bdf8, #818cf8);
+    border-radius: 4px;
+    transition: width 0.15s ease;
+}
+
 
 
 
@@ -4682,4 +4768,179 @@ select option:checked,
     align-items: center;
     gap: 5px;
     border-radius: 4px;
+}
+
+/* Update Notification Pill & Modal */
+.update-pill {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+    color: #ffffff !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    animation: pulse-glow 2.5s infinite ease-in-out;
+    transition: all 0.25s ease;
+}
+
+.update-pill:hover {
+    transform: translateY(-1px) scale(1.02);
+    box-shadow: 0 0 16px rgba(16, 185, 129, 0.6);
+}
+
+@keyframes pulse-glow {
+    0%, 100% {
+        box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 16px rgba(16, 185, 129, 0.75);
+    }
+}
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(5px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    transition: opacity 0.25s ease;
+}
+
+.modal-overlay.hidden {
+    display: none;
+}
+
+.modal-box {
+    background: var(--bg-surface, #1e1e24);
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+    border-radius: 12px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    width: 90%;
+    max-width: 520px;
+    animation: modal-enter 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modal-enter {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.update-modal-card .modal-header {
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+}
+
+.update-modal-card .modal-header h3 {
+    margin: 0;
+    font-size: 1.15rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-close-modal {
+    background: none;
+    border: none;
+    font-size: 1.4rem;
+    color: var(--text-muted, #94a3b8);
+    cursor: pointer;
+    line-height: 1;
+    transition: color 0.15s;
+}
+
+.btn-close-modal:hover {
+    color: var(--text-main, #fff);
+}
+
+.update-modal-card .modal-body {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.version-compare-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    justify-content: center;
+    padding: 10px 0;
+}
+
+.version-chip {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.version-chip.current {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-muted, #94a3b8);
+}
+
+.version-chip.latest {
+    background: rgba(16, 185, 129, 0.2);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.update-notes-wrap h4, .update-instructions h4 {
+    margin: 0 0 6px 0;
+    font-size: 0.9rem;
+    color: var(--text-muted, #94a3b8);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.update-notes-wrap p {
+    margin: 0;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    color: var(--text-main, #e2e8f0);
+}
+
+.instructions-block {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 12px 14px;
+}
+
+.instructions-block p {
+    margin: 6px 0;
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+.instructions-block code {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.82rem;
+}
+
+.update-modal-card .modal-footer {
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+    background: rgba(0, 0, 0, 0.15);
 }

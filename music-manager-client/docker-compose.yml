@@ -1,0 +1,17 @@
+services:
+  music-manager:
+    image: ${IMAGE_NAME:-ghcr.io/jb155/music-manager:latest}
+    container_name: music_manager
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8085}:8085"
+    environment:
+      # Base storage directory: system automatically manages /music, /music_new, /config, etc.
+      - STORAGE_DIR=/storage
+      - PYTHONUNBUFFERED=1
+      - OLLAMA_HOST=${OLLAMA_HOST:-}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3.5:9b}
+    volumes:
+      # Single base storage: point to any local folder or external drive.
+      # Defaults to a './music_data' folder right next to this compose file.
+      - ${STORAGE_PATH:-./music_data}:/storage

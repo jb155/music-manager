@@ -10,11 +10,13 @@ document.addEventListener("DOMContentLoaded", () => {
     loadOllamaServers();
     loadMissingTracks();
     loadStagingFiles();
+    initManualUpload();
     initAIRecommendations();
     initPlaylistCreator();
     audioManager = new AudioManager();
     initLibraryBrowser();
     startStatusPoller();
+    checkAppVersion();
 });
 
 // Toast Notifications
@@ -34,6 +36,61 @@ function showToast(message, type = "info") {
         toast.style.animation = "slideIn 0.3s ease-out reverse forwards";
         setTimeout(() => toast.remove(), 300);
     }, 4000);
+}
+
+// Version & Update Check
+let _latestVersionInfo = null;
+
+async function checkAppVersion() {
+    try {
+        const resp = await fetch("/api/version");
+        if (!resp.ok) return;
+        const data = await resp.json();
+        _latestVersionInfo = data;
+
+        const badge = document.getElementById("update-badge");
+        const label = document.getElementById("update-badge-label");
+
+        if (data.update_available) {
+            if (badge) {
+                badge.classList.remove("hidden");
+                if (label) label.textContent = `Update: v${data.latest_version}`;
+                badge.onclick = () => showUpdateModal(data);
+            }
+        } else {
+            if (badge) badge.classList.add("hidden");
+        }
+    } catch (e) {
+        console.debug("Update check skipped:", e);
+    }
+}
+
+function showUpdateModal(data) {
+    const info = data || _latestVersionInfo;
+    if (!info) return;
+
+    const modal = document.getElementById("update-modal");
+    const currentEl = document.getElementById("modal-current-ver");
+    const latestEl = document.getElementById("modal-latest-ver");
+    const notesEl = document.getElementById("modal-update-notes");
+    const repoLink = document.getElementById("modal-repo-link");
+
+    if (currentEl) currentEl.textContent = `v${info.current_version}`;
+    if (latestEl) latestEl.textContent = `v${info.latest_version}`;
+    if (notesEl) notesEl.textContent = info.release_notes || "Performance and stability improvements.";
+    if (repoLink && info.release_url) repoLink.href = info.release_url;
+
+    if (modal) modal.classList.remove("hidden");
+
+    const closeBtn = document.getElementById("btn-close-update-modal");
+    const dismissBtn = document.getElementById("btn-dismiss-update");
+
+    const closeModal = () => modal.classList.add("hidden");
+    if (closeBtn) closeBtn.onclick = closeModal;
+    if (dismissBtn) dismissBtn.onclick = closeModal;
+    modal.onclick = (e) => {
+        if (e.target === modal) closeModal();
+    };
 }
 
 // Navigation Tabs
@@ -533,6 +590,260 @@ if (btnFetchArt) {
             showToast("Network error", "error");
         }
     });
+}
+
+// ============================================================================
+// MANUAL MUSIC FOLDER & FILE UPLOAD MODULE
+// ============================================================================
+function initManualUpload() {
+    const dropzone = document.getElementById("staging-upload-dropzone");
+    const btnSelectFolder = document.getElementById("btn-select-folder");
+    const btnSelectFiles = document.getElementById("btn-select-files");
+    const inputFolder = document.getElementById("input-folder-upload");
+    const inputFiles = document.getElementById("input-files-upload");
+    const autoImportToggle = document.getElementById("upload-auto-import-toggle");
+    const progressContainer = document.getElementById("upload-progress-container");
+    const progressStatus = document.getElementById("upload-progress-status");
+    const progressBar = document.getElementById("upload-progress-bar");
+    const progressPercent = document.getElementById("upload-progress-percent");
+    const currentFileText = document.getElementById("upload-current-file");
+
+    if (!dropzone) return;
+
+    const VALID_EXTS = ['.mp3', '.flac', '.m4a', '.ogg', '.wav', '.opus', '.aac', '.alac', '.aiff', '.wma', '.zip', '.jpg', '.jpeg', '.png', '.cue', '.m3u', '.m3u8'];
+
+    function isAudioOrMedia(filename) {
+        if (!filename) return false;
+        const dot = filename.lastIndexOf('.');
+        if (dot === -1) return false;
+        const ext = filename.slice(dot).toLowerCase();
+        return VALID_EXTS.includes(ext);
+    }
+
+    // Prevent default browser drag navigation
+    window.addEventListener("dragover", (e) => e.preventDefault(), false);
+    window.addEventListener("drop", (e) => e.preventDefault(), false);
+
+    // Dropzone highlight effects
+    dropzone.addEventListener("dragenter", (e) => {
+        e.preventDefault();
+        dropzone.classList.add("dragover");
+    });
+    dropzone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        dropzone.classList.add("dragover");
+    });
+    dropzone.addEventListener("dragleave", (e) => {
+        e.preventDefault();
+        if (!dropzone.contains(e.relatedTarget)) {
+            dropzone.classList.remove("dragover");
+        }
+    });
+
+    // Handle Dropped Files / Folders
+    dropzone.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        dropzone.classList.remove("dragover");
+        const items = e.dataTransfer.items;
+        if (!items || items.length === 0) return;
+
+        try {
+            const filesToUpload = await extractFilesFromDataTransfer(items);
+            if (filesToUpload.length > 0) {
+                uploadQueue(filesToUpload);
+            } else {
+                showToast("No audio files found in dropped item(s)", "warning");
+            }
+        } catch (err) {
+            console.error("Error reading dropped entries:", err);
+            showToast("Failed reading dropped files", "error");
+        }
+    });
+
+    // Button triggers
+    if (btnSelectFolder && inputFolder) {
+        btnSelectFolder.addEventListener("click", (e) => {
+            e.stopPropagation();
+            inputFolder.click();
+        });
+        inputFolder.addEventListener("change", () => {
+            if (!inputFolder.files || inputFolder.files.length === 0) return;
+            const filesToUpload = [];
+            for (let i = 0; i < inputFolder.files.length; i++) {
+                const f = inputFolder.files[i];
+                const relPath = f.webkitRelativePath || f.name;
+                if (isAudioOrMedia(relPath)) {
+                    filesToUpload.push({ file: f, path: relPath });
+                }
+            }
+            inputFolder.value = "";
+            if (filesToUpload.length > 0) {
+                uploadQueue(filesToUpload);
+            } else {
+                showToast("No audio files found in selected folder", "warning");
+            }
+        });
+    }
+
+    if (btnSelectFiles && inputFiles) {
+        btnSelectFiles.addEventListener("click", (e) => {
+            e.stopPropagation();
+            inputFiles.click();
+        });
+        inputFiles.addEventListener("change", () => {
+            if (!inputFiles.files || inputFiles.files.length === 0) return;
+            const filesToUpload = [];
+            for (let i = 0; i < inputFiles.files.length; i++) {
+                const f = inputFiles.files[i];
+                if (isAudioOrMedia(f.name)) {
+                    filesToUpload.push({ file: f, path: f.name });
+                }
+            }
+            inputFiles.value = "";
+            if (filesToUpload.length > 0) {
+                uploadQueue(filesToUpload);
+            } else {
+                showToast("No valid audio files or archives selected", "warning");
+            }
+        });
+    }
+
+    // Recursive directory reader for drag-and-drop folders
+    async function extractFilesFromDataTransfer(items) {
+        const fileList = [];
+        const queue = [];
+
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (item.webkitGetAsEntry) {
+                const entry = item.webkitGetAsEntry();
+                if (entry) queue.push(entry);
+            } else if (item.getAsFile) {
+                const f = item.getAsFile();
+                if (f && isAudioOrMedia(f.name)) fileList.push({ file: f, path: f.name });
+            }
+        }
+
+        while (queue.length > 0) {
+            const entry = queue.shift();
+            if (entry.isFile) {
+                await new Promise((resolve) => {
+                    entry.file((f) => {
+                        const relPath = entry.fullPath ? entry.fullPath.replace(/^\//, '') : f.name;
+                        if (isAudioOrMedia(relPath)) {
+                            fileList.push({ file: f, path: relPath });
+                        }
+                        resolve();
+                    }, () => resolve());
+                });
+            } else if (entry.isDirectory) {
+                const reader = entry.createReader();
+                const readBatch = async () => {
+                    return new Promise((resolve) => {
+                        reader.readEntries((entries) => {
+                            if (!entries || entries.length === 0) {
+                                resolve();
+                            } else {
+                                for (const child of entries) {
+                                    queue.push(child);
+                                }
+                                readBatch().then(resolve);
+                            }
+                        }, () => resolve());
+                    });
+                };
+                await readBatch();
+            }
+        }
+        return fileList;
+    }
+
+    // Upload files sequentially with progress tracking
+    async function uploadQueue(fileList) {
+        progressContainer.style.display = "block";
+        progressBar.style.width = "0%";
+        progressPercent.innerText = "0%";
+        progressStatus.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Uploading files to staging...';
+
+        const totalBytes = fileList.reduce((acc, it) => acc + it.file.size, 0);
+        let uploadedBytesPrevious = 0;
+        let successCount = 0;
+
+        for (let idx = 0; idx < fileList.length; idx++) {
+            const item = fileList[idx];
+            currentFileText.innerText = `(${idx + 1}/${fileList.length}) ${item.path}`;
+
+            try {
+                await new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    const formData = new FormData();
+                    formData.append("files", item.file, item.file.name);
+                    formData.append("relative_paths", item.path);
+                    formData.append("auto_import", "false");
+
+                    xhr.upload.addEventListener("progress", (ev) => {
+                        if (ev.lengthComputable) {
+                            const currentTotal = uploadedBytesPrevious + ev.loaded;
+                            const percent = Math.min(99, Math.round((currentTotal / (totalBytes || 1)) * 100));
+                            progressBar.style.width = `${percent}%`;
+                            progressPercent.innerText = `${percent}%`;
+                        }
+                    });
+
+                    xhr.onload = () => {
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            uploadedBytesPrevious += item.file.size;
+                            successCount++;
+                            resolve();
+                        } else {
+                            reject(new Error(`Server error: ${xhr.statusText}`));
+                        }
+                    };
+
+                    xhr.onerror = () => reject(new Error("Network error during upload"));
+                    xhr.open("POST", "/api/upload");
+                    xhr.send(formData);
+                });
+            } catch (err) {
+                console.error("Upload error for file:", item.path, err);
+                showToast(`Failed to upload: ${item.path}`, "error");
+            }
+        }
+
+        progressBar.style.width = "100%";
+        progressPercent.innerText = "100%";
+        progressStatus.innerHTML = '<i class="fa-solid fa-check text-success"></i> Upload complete!';
+        currentFileText.innerText = `Transferred ${successCount} file(s) into Staging.`;
+        showToast(`${successCount} file(s) transferred to Staging`, "success");
+
+        await loadStagingFiles();
+
+        if (autoImportToggle && autoImportToggle.checked && successCount > 0) {
+            showToast("Auto-importing into library with Beets...", "info");
+            const termTab = document.querySelector('[data-tab="terminal"]');
+            if (termTab) termTab.click();
+
+            try {
+                const res = await fetch("/api/import", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ force: false })
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    showToast(err.detail || "Import error", "error");
+                }
+            } catch (e) {
+                showToast("Network error starting import", "error");
+            }
+        }
+
+        setTimeout(() => {
+            if (progressStatus.innerHTML.includes("Upload complete!")) {
+                progressContainer.style.display = "none";
+            }
+        }, 5000);
+    }
 }
 
 // ============================================================================

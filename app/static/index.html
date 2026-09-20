@@ -34,6 +34,9 @@
                         <option value="midnight_cyan">🌌 Midnight Cyan</option>
                     </select>
                 </div>
+                <div class="stat-pill update-pill hidden" id="update-badge" title="Click to view update details">
+                    <i class="fa-solid fa-sparkles"></i> <span id="update-badge-label">Update Available</span>
+                </div>
                 <div class="stat-pill" id="stat-tracks"><i class="fa-solid fa-compact-disc"></i> <span>-- Tracks</span></div>
                 <div class="stat-pill" id="stat-albums"><i class="fa-solid fa-record-vinyl"></i> <span>-- Albums</span></div>
                 <div class="stat-pill" id="stat-size"><i class="fa-solid fa-hard-drive"></i> <span>-- GB</span></div>
@@ -781,6 +784,47 @@
                         </div>
                     </div>
 
+                    <!-- MANUAL FOLDER / FILE UPLOAD DROPZONE -->
+                    <div class="upload-dropzone card glass mt-3" id="staging-upload-dropzone">
+                        <div class="dropzone-inner text-center">
+                            <div class="dropzone-icon">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                            </div>
+                            <h3 style="margin-bottom: 4px;">Manual Music Import</h3>
+                            <p class="dropzone-text">Drag & drop your music folder, loose audio files, or a <code>.zip</code> album archive here</p>
+
+                            <div class="dropzone-actions mt-2">
+                                <button type="button" class="btn btn-primary" id="btn-select-folder">
+                                    <i class="fa-solid fa-folder-plus"></i> Select Music Folder
+                                </button>
+                                <button type="button" class="btn btn-secondary" id="btn-select-files">
+                                    <i class="fa-solid fa-file-audio"></i> Select Audio Files
+                                </button>
+                                <input type="file" id="input-folder-upload" webkitdirectory directory multiple hidden>
+                                <input type="file" id="input-files-upload" multiple accept="audio/*,.mp3,.flac,.m4a,.ogg,.wav,.opus,.aac,.alac,.aiff,.wma,.zip" hidden>
+                            </div>
+
+                            <div class="dropzone-options mt-3">
+                                <label class="checkbox-label" title="Automatically identify artist/album, fetch cover art, embed tags, and file into library">
+                                    <input type="checkbox" id="upload-auto-import-toggle" checked>
+                                    <span class="label-text"><i class="fa-solid fa-wand-magic-sparkles text-accent"></i> Automatically identify, tag, and import into library after upload</span>
+                                </label>
+                            </div>
+
+                            <!-- Upload Progress Container (Hidden until upload begins) -->
+                            <div class="upload-progress-container mt-3" id="upload-progress-container" style="display: none;">
+                                <div class="progress-info flex-between">
+                                    <span id="upload-progress-status"><i class="fa-solid fa-spinner fa-spin"></i> Uploading files...</span>
+                                    <span id="upload-progress-percent">0%</span>
+                                </div>
+                                <div class="progress-track mt-1">
+                                    <div class="progress-fill" id="upload-progress-bar" style="width: 0%;"></div>
+                                </div>
+                                <div class="upload-current-file text-muted mt-1" id="upload-current-file" style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="table-container mt-3">
                         <table class="data-table" id="staging-table">
                             <thead>
@@ -868,6 +912,40 @@
             <button type="button" class="player-btn-icon" id="player-btn-close" title="Close Player">
                 <i class="fa-solid fa-xmark"></i>
             </button>
+        </div>
+    </div>
+
+    <!-- Update Details Modal -->
+    <div id="update-modal" class="modal-overlay hidden">
+        <div class="modal-box update-modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-sparkles text-accent"></i> New Version Available</h3>
+                <button type="button" class="btn-close-modal" id="btn-close-update-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="version-compare-row">
+                    <div class="version-chip current">Current: <span id="modal-current-ver">v1.3.0</span></div>
+                    <i class="fa-solid fa-arrow-right text-muted"></i>
+                    <div class="version-chip latest">Latest: <span id="modal-latest-ver">v1.3.1</span></div>
+                </div>
+                <div class="update-notes-wrap" id="modal-update-notes-wrap">
+                    <h4>What's New:</h4>
+                    <p id="modal-update-notes"></p>
+                </div>
+                <div class="update-instructions">
+                    <h4>How to Update:</h4>
+                    <div class="instructions-block">
+                        <p><strong>OpenMediaVault:</strong> In <em>Services &rarr; Compose &rarr; Files</em>, select <code>music-manager</code> and click <strong>Pull</strong>, then click <strong>Up</strong>.</p>
+                        <p><strong>Docker CLI:</strong> <code>docker compose pull &amp;&amp; docker compose up -d</code></p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <a href="https://github.com/jb155/music-manager" target="_blank" class="btn btn-secondary btn-sm" id="modal-repo-link">
+                    <i class="fa-brands fa-github"></i> View on GitHub
+                </a>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-dismiss-update">Dismiss</button>
+            </div>
         </div>
     </div>
 

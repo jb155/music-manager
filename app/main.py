@@ -1,8 +1,10 @@
 import json
 import re
 import os
+import time
 import asyncio
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, Query
+import urllib.request
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,7 +62,9 @@ def ensure_spotapi_patched():
 ensure_spotapi_patched()
 
 
-app = FastAPI(title="Music Manager Web", version="1.3.0")
+APP_VERSION = "1.3.1"
+
+app = FastAPI(title="Music Manager Web", version=APP_VERSION)
 
 app.add_middleware(
     CORSMiddleware,
@@ -173,9 +177,65 @@ class PlaylistExportRequest(BaseModel):
     tracks: List[Dict[str, Any]]
 
 # Existing API Routes
+_version_cache = {"last_check": 0, "data": None}
+
+def parse_semver(v: str):
+    """Parse semver string like '1.3.1' or 'v1.3.1' into tuple of ints for comparison."""
+    clean = re.sub(r'^[^\d]*', '', v or '')
+    parts = []
+    for p in clean.split('.'):
+        try:
+            m = re.match(r'\d+', p)
+            parts.append(int(m.group(0)) if m else 0)
+        except Exception:
+            parts.append(0)
+    return tuple(parts)
+
+@app.get("/api/version")
+async def get_version_info():
+    """Check for new versions from GitHub repository."""
+    now = time.time()
+    if _version_cache["data"] and (now - _version_cache["last_check"] < 3600):
+        return _version_cache["data"]
+
+    remote_version = APP_VERSION
+    release_notes = ""
+    release_url = "https://github.com/jb155/music-manager"
+    update_available = False
+
+    try:
+        req = urllib.request.Request(
+            "https://raw.githubusercontent.com/jb155/music-manager/main/version.json",
+            headers={"User-Agent": f"MusicManager/{APP_VERSION}"}
+        )
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            if resp.status == 200:
+                vdata = json.loads(resp.read().decode('utf-8'))
+                remote_version = vdata.get("version", APP_VERSION)
+                release_notes = vdata.get("notes", "")
+                if parse_semver(remote_version) > parse_semver(APP_VERSION):
+                    update_available = True
+    except Exception:
+        pass
+
+    res = {
+        "current_version": APP_VERSION,
+        "latest_version": remote_version,
+        "update_available": update_available,
+        "release_notes": release_notes,
+        "release_url": release_url
+    }
+    _version_cache["last_check"] = now
+    _version_cache["data"] = res
+    return res
+
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "service": "Music Manager Web", "version": "1.3.0"}
+    return {"status": "ok", "service": "Music Manager Web", "version": APP_VERSION}
+
+@app.get("/api/system/storage")
+async def get_storage_info():
+    return service.get_storage_info()
 
 @app.get("/api/status")
 async def get_status():
@@ -244,6 +304,38 @@ async def start_missing_download(req: MissingDownloadRequest, bg: BackgroundTask
     service._abort_requested = False
     bg.add_task(service.download_missing_tracks, req.tracks, req.auto_import)
     return {"message": "Missing tracks download started"}
+
+@app.post("/api/upload")
+async def upload_music_files(
+    bg: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    relative_paths: Optional[List[str]] = Form(None),
+    auto_import: bool = Form(False)
+):
+    """Upload audio files or a folder into staging, with optional automatic Beets import."""
+    results = []
+    total_bytes = 0
+
+    for i, file_obj in enumerate(files):
+        rel_path = relative_paths[i] if (relative_paths and i < len(relative_paths)) else None
+        res = await service.save_uploaded_file(file_obj.filename, file_obj, rel_path)
+        results.append(res)
+        total_bytes += res.get("bytes", 0)
+
+    import_started = False
+    if auto_import:
+        if service.task_progress.get("status") != "running":
+            service._abort_requested = False
+            bg.add_task(service.import_library, False)
+            import_started = True
+
+    return {
+        "success": True,
+        "count": len(files),
+        "total_bytes": total_bytes,
+        "results": results,
+        "auto_import_started": import_started
+    }
 
 @app.post("/api/import")
 async def start_import(bg: BackgroundTasks, req: Optional[ImportRequest] = None):

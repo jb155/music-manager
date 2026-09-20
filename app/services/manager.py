@@ -106,10 +106,32 @@ def normalize_album_name(album: str) -> str:
 
 class MusicManagerService:
     def __init__(self):
-        self.music_dir = os.environ.get("MUSIC_DIR", "/music")
-        self.new_music_dir = os.environ.get("NEW_MUSIC_DIR", "/music_new")
-        self.beets_dir = os.environ.get("BEETSDIR", "/config/beets")
-        self.preview_dir = os.environ.get("PREVIEW_DIR", "/.music_preview")
+        # Base storage directory support (single declaration point for entire platform)
+        self.storage_dir = os.environ.get("STORAGE_DIR")
+        if self.storage_dir:
+            default_music = os.path.join(self.storage_dir, "music")
+            default_new = os.path.join(self.storage_dir, "music_new")
+            default_beets = os.path.join(self.storage_dir, "config", "beets")
+            default_preview = os.path.join(self.storage_dir, ".music_preview")
+
+            custom_music = os.environ.get("MUSIC_DIR")
+            self.music_dir = custom_music if (custom_music and custom_music != "/music") else default_music
+
+            custom_new = os.environ.get("NEW_MUSIC_DIR")
+            self.new_music_dir = custom_new if (custom_new and custom_new != "/music_new") else default_new
+
+            custom_beets = os.environ.get("BEETSDIR")
+            self.beets_dir = custom_beets if (custom_beets and custom_beets != "/config/beets") else default_beets
+
+            custom_preview = os.environ.get("PREVIEW_DIR")
+            self.preview_dir = custom_preview if (custom_preview and custom_preview != "/.music_preview") else default_preview
+        else:
+            self.music_dir = os.environ.get("MUSIC_DIR", "/music")
+            self.new_music_dir = os.environ.get("NEW_MUSIC_DIR", "/music_new")
+            self.beets_dir = os.environ.get("BEETSDIR", "/config/beets")
+            self.preview_dir = os.environ.get("PREVIEW_DIR", "/.music_preview")
+
+        os.environ["BEETSDIR"] = self.beets_dir
         try:
             os.makedirs(self.preview_dir, exist_ok=True)
         except Exception as e:
@@ -154,6 +176,19 @@ class MusicManagerService:
         self._ensure_spotapi_patched()
         self._ensure_spotdl_patched()
 
+    def get_storage_info(self) -> Dict[str, Any]:
+        """Return configured base storage paths, subfolders, and database health."""
+        db_file = os.path.join(self.beets_dir, "library.db")
+        return {
+            "base_storage": self.storage_dir or "discrete",
+            "music_dir": self.music_dir,
+            "new_music_dir": self.new_music_dir,
+            "beets_dir": self.beets_dir,
+            "preview_dir": self.preview_dir,
+            "library_db_exists": os.path.exists(db_file),
+            "library_db_path": db_file
+        }
+
     def _ensure_beets_config(self):
         """Ensure Beets configuration file exists; create default config if missing on first run."""
         cfg_file = os.path.join(self.beets_dir, "config.yaml")
@@ -170,8 +205,9 @@ class MusicManagerService:
             except Exception as e:
                 logger.warning(f"Could not copy bundled beets config: {e}")
 
-        default_yaml = """directory: /music
-library: /config/beets/library.db
+        db_path = os.path.join(self.beets_dir, "library.db")
+        default_yaml = """directory: __MUSIC_DIR__
+library: __LIBRARY_DB__
 
 plugins: ftintitle inline missing duplicates fetchart embedart musicbrainz lastgenre
 
@@ -263,6 +299,7 @@ paths:
     default: $custom_artist/$custom_album/$custom_track_name
     singleton: $custom_artist/Non-Album/$custom_track_name
 """
+        default_yaml = default_yaml.replace("__MUSIC_DIR__", self.music_dir).replace("__LIBRARY_DB__", db_path)
         try:
             with open(cfg_file, "w", encoding="utf-8") as f:
                 f.write(default_yaml)
@@ -1132,6 +1169,66 @@ paths:
                 self.task_progress = {"status": "idle", "action": None, "current": 3, "total": 4, "message": "Import finished"}
 
         return {"success": True, "leftovers": leftovers}
+
+    async def save_uploaded_file(self, filename: str, file_obj, relative_path: Optional[str] = None) -> Dict[str, Any]:
+        """Save an uploaded audio/archive file into staging, preserving directory paths or auto-unpacking zip archives."""
+        audio_or_media_exts = {".mp3", ".flac", ".m4a", ".ogg", ".wav", ".opus", ".aac", ".alac", ".aiff", ".wma", ".jpg", ".jpeg", ".png", ".cue", ".m3u", ".m3u8"}
+
+        target_name = relative_path if (relative_path and relative_path.strip()) else filename
+        clean_rel = os.path.normpath(target_name).replace("\\", "/")
+        clean_rel = re.sub(r'^[a-zA-Z]:[/]', '', clean_rel).lstrip("/")
+        parts = [p for p in clean_rel.split("/") if p and p != ".." and p != "."]
+        if not parts:
+            parts = [os.path.basename(filename) or "upload.mp3"]
+        safe_rel_path = os.path.join(*parts)
+
+        dest_path = os.path.join(self.new_music_dir, safe_rel_path)
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+
+        bytes_written = 0
+        with open(dest_path, "wb") as f_out:
+            if hasattr(file_obj, "read"):
+                if asyncio.iscoroutinefunction(file_obj.read):
+                    while chunk := await file_obj.read(65536):
+                        f_out.write(chunk)
+                        bytes_written += len(chunk)
+                else:
+                    import shutil
+                    shutil.copyfileobj(file_obj, f_out, length=65536)
+
+        if bytes_written == 0 and os.path.exists(dest_path):
+            bytes_written = os.path.getsize(dest_path)
+
+        # If user uploaded a .zip file, automatically unpack audio contents into staging
+        if safe_rel_path.lower().endswith(".zip"):
+            try:
+                import zipfile
+                import shutil
+                extracted_count = 0
+                with zipfile.ZipFile(dest_path, 'r') as zf:
+                    for member in zf.infolist():
+                        m_clean = os.path.normpath(member.filename).replace("\\", "/")
+                        m_parts = [p for p in m_clean.split("/") if p and p != ".." and p != "."]
+                        if not m_parts or member.is_dir():
+                            continue
+                        m_safe_rel = os.path.join(*m_parts)
+                        ext = os.path.splitext(m_safe_rel)[1].lower()
+                        if ext in audio_or_media_exts:
+                            m_dest = os.path.join(self.new_music_dir, m_safe_rel)
+                            os.makedirs(os.path.dirname(m_dest), exist_ok=True)
+                            with zf.open(member) as source, open(m_dest, "wb") as target:
+                                shutil.copyfileobj(source, target)
+                            extracted_count += 1
+                try:
+                    os.remove(dest_path)
+                except Exception:
+                    pass
+                return {"filename": filename, "type": "zip", "extracted": extracted_count, "bytes": bytes_written}
+            except Exception as e:
+                logger.error(f"Error extracting uploaded zip {filename}: {e}")
+                return {"filename": filename, "type": "zip_error", "error": str(e), "bytes": bytes_written}
+
+        return {"filename": filename, "path": safe_rel_path, "type": "file", "bytes": bytes_written}
 
     def get_staging_files(self) -> List[Dict[str, Any]]:
         # Check /app for any stray files and move to /music_new
