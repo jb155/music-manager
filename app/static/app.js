@@ -51,14 +51,17 @@ async function checkAppVersion() {
         const badge = document.getElementById("update-badge");
         const label = document.getElementById("update-badge-label");
 
-        if (data.update_available) {
-            if (badge) {
+        if (badge) {
+            badge.onclick = () => showUpdateModal(data);
+
+            if (data.update_available) {
+                badge.style.display = "inline-flex";
                 badge.classList.remove("hidden");
                 if (label) label.textContent = `Update: v${data.latest_version}`;
-                badge.onclick = () => showUpdateModal(data);
+            } else {
+                badge.style.display = "none";
+                badge.classList.add("hidden");
             }
-        } else {
-            if (badge) badge.classList.add("hidden");
         }
     } catch (e) {
         console.debug("Update check skipped:", e);
@@ -74,23 +77,49 @@ function showUpdateModal(data) {
     const latestEl = document.getElementById("modal-latest-ver");
     const notesEl = document.getElementById("modal-update-notes");
     const repoLink = document.getElementById("modal-repo-link");
+    const instructionsBlock = document.querySelector(".update-instructions");
 
     if (currentEl) currentEl.textContent = `v${info.current_version}`;
-    if (latestEl) latestEl.textContent = `v${info.latest_version}`;
-    if (notesEl) notesEl.textContent = info.release_notes || "Performance and stability improvements.";
+    if (latestEl) {
+        if (info.update_available) {
+            latestEl.textContent = `v${info.latest_version}`;
+        } else {
+            latestEl.textContent = `v${info.current_version} (Latest)`;
+        }
+    }
+    if (notesEl) {
+        if (info.update_available) {
+            notesEl.textContent = info.release_notes || "Performance and stability improvements.";
+        } else {
+            notesEl.textContent = `You are running the latest version of Music Manager (v${info.current_version}). No updates are currently needed.`;
+        }
+    }
+    if (instructionsBlock) {
+        instructionsBlock.style.display = info.update_available ? "block" : "none";
+    }
     if (repoLink && info.release_url) repoLink.href = info.release_url;
 
-    if (modal) modal.classList.remove("hidden");
+    if (modal) {
+        modal.style.display = "flex";
+        modal.classList.remove("hidden");
+    }
 
     const closeBtn = document.getElementById("btn-close-update-modal");
     const dismissBtn = document.getElementById("btn-dismiss-update");
 
-    const closeModal = () => modal.classList.add("hidden");
+    const closeModal = () => {
+        if (modal) {
+            modal.style.display = "none";
+            modal.classList.add("hidden");
+        }
+    };
     if (closeBtn) closeBtn.onclick = closeModal;
     if (dismissBtn) dismissBtn.onclick = closeModal;
-    modal.onclick = (e) => {
-        if (e.target === modal) closeModal();
-    };
+    if (modal) {
+        modal.onclick = (e) => {
+            if (e.target === modal) closeModal();
+        };
+    }
 }
 
 // Navigation Tabs
