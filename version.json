@@ -1,5 +1,5 @@
 {
-  "version": "1.3.1",
+  "version": "1.3.2",
   "release_date": "2026-09-20",
-  "notes": "Added built-in update notification system; removed external Watchtower dependency for cleaner deployment."
+  "notes": "Added automated Beets deduplication, tiebreaker rules, and periodic 6-hour background library reconciliation."
 }

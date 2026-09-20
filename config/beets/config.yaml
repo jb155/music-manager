@@ -25,6 +25,7 @@ import:
     resume: yes
     quiet_fallback: asis
     duplicate_action: merge
+    incremental: yes
     group_albums: yes
 
 missing:
@@ -112,3 +113,11 @@ lastgenre:
     separator: ", "
     prefer_specific: yes
     canonical: yes
+
+duplicates:
+    album: yes
+    path: yes
+    tiebreak:
+        items: [bitrate, format]
+    strict: no
+

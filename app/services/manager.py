@@ -225,6 +225,13 @@ embedart:
     remove_art_file: no
     maxwidth: 1200
 
+duplicates:
+    album: yes
+    path: yes
+    tiebreak:
+        items: [bitrate, format]
+    strict: no
+
 import:
     move: yes
     write: yes
@@ -232,6 +239,7 @@ import:
     quiet_fallback: asis
     duplicate_action: merge
     group_albums: yes
+    incremental: yes
 
 missing:
     count: no
@@ -1327,6 +1335,8 @@ paths:
 
                 await self.broadcast_log("\n[STEP 2/3] Updating library paths...\n")
                 await self._run_command(["beet", "update", "-F", "path"], timeout=300)
+                await self.broadcast_log("\n[STEP 2b/3] Pruning dead paths and deduplicating library...\n")
+                await self.sanitize_and_deduplicate_library()
 
             if not self._abort_requested:
                 self.task_progress["current"] = 2

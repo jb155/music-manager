@@ -62,7 +62,7 @@ def ensure_spotapi_patched():
 ensure_spotapi_patched()
 
 
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 
 app = FastAPI(title="Music Manager Web", version=APP_VERSION)
 
@@ -94,6 +94,18 @@ async def on_startup():
                 pass
 
     asyncio.create_task(periodic_preview_cleanup())
+
+    # Periodic background task: automatically deduplicate and sanitize library after sync
+    async def periodic_library_sanitization():
+        await asyncio.sleep(30)
+        while True:
+            try:
+                await service.sanitize_and_deduplicate_library()
+            except Exception:
+                pass
+            await asyncio.sleep(21600)  # Every 6 hours
+
+    asyncio.create_task(periodic_library_sanitization())
 
 # Request Models
 class DownloadRequest(BaseModel):
