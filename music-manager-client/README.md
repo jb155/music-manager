@@ -2,7 +2,7 @@
 
 A self-hosted, automated music management suite powered by **Beets**, **SpotDL**, and local **AI Curation**. 
 
-This package is pre-configured to run with **Docker Compose** and includes **Watchtower** for automatic background updates.
+This package is pre-configured to run with **Docker Compose** as a clean single service with automated in-app update notifications.
 
 ---
 
@@ -64,18 +64,48 @@ That's it! Open your web browser and navigate to:
 
 On first launch, the app automatically initializes all folders, generates a tuned Beets configuration, and connects to the Web UI.
 
+---
+
+## 🖥️ Alternative: OpenMediaVault (OMV) Web GUI Installation
+
+If you manage your NAS using the OpenMediaVault Web GUI with the **Compose Plugin**:
+
+1. Log into your **OMV Web Interface**.
+2. Navigate to **Services** ➔ **Compose** ➔ **Files**.
+3. Click the **➕ (Add / Create)** button.
+4. Fill in the form:
+   - **Name:** `music-manager`
+   - **Description:** `Music Manager & Beets Automation`
+   - **File (Compose):** Paste the contents of `docker-compose.yml`
+   - Check **Show environment file**
+   - **Environment:**
+     ```bash
+     STORAGE_PATH=./music_data
+     PORT=8085
+     ```
+     *(Or set `STORAGE_PATH` to any shared folder path on your OMV disk)*
+5. Click **Save**, then click the yellow banner's **Apply (✓)** checkmark.
+6. Select `music-manager` in the table and click **Up (▶️)** to pull and start the service.
+7. Open **`http://<your-nas-ip>:8085`** in your browser!
+
 ### 📥 Adding Music:
 - **Web UI (Easiest)**: Navigate to the **Staging & Import** tab and drag & drop a music folder, loose audio files, or a `.zip` album archive right into the window (or click **Select Music Folder**). With auto-import enabled, the system automatically identifies the tracks via MusicBrainz, fetches album artwork, embeds metadata, and files them into `Artist/Album/Track`.
 - **Direct Copy**: You can also drop audio files directly into your host machine's `music_new/` folder and click **1-Click Beets Import** in the web UI.
 
 ---
 
-## 🔄 Automatic Updates via Watchtower
+## 🔄 Updates & Version Notifications
 
-This installation comes with **Watchtower** enabled by default:
-- Every hour, Watchtower checks for any updates or improvements released by the developer.
-- If a new version is detected, Watchtower downloads it, gracefully restarts the `music-manager` container, and cleans up old image data.
-- **Your music files, personal database (`library.db`), and settings are 100% preserved and never touched during updates.**
+Music Manager includes built-in version checking without requiring any third-party background updater services running on your server:
+- When a new version is published, an **Update Available (vX.X.X)** button appears directly in the Web UI header.
+- Click the notification to view the release notes and update instructions.
+- To update:
+  - **OpenMediaVault GUI:** Go to **Services ➔ Compose ➔ Files**, select `music-manager`, click **Pull**, then click **Up**.
+  - **Terminal / Docker CLI:** Run:
+    ```bash
+    docker compose pull && docker compose up -d
+    ```
+- **Your music library, beets database (`library.db`), and configurations are 100% persistent in your storage volume.**
 
 ---
 
@@ -93,7 +123,7 @@ This installation comes with **Watchtower** enabled by default:
   ```bash
   docker compose restart
   ```
-- **Manually Force an Immediate Update:**
+- **Manually Pull & Update:**
   ```bash
   docker compose pull && docker compose up -d
   ```

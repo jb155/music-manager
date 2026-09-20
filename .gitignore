@@ -24,3 +24,9 @@ dist/
 /style.css
 /downloaded_app.js
 /live_verified_app.js
+
+# OMV Compose generated files
+compose.override.yml
+compose.yml
+music-manager.env
+music-manager.yml

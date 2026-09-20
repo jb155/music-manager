@@ -15,3 +15,4 @@ services:
       # Single base storage: point to any local folder or external drive.
       # Defaults to a './music_data' folder right next to this compose file.
       - ${STORAGE_PATH:-./music_data}:/storage
+

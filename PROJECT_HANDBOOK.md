@@ -177,9 +177,14 @@ The single-page application is structured into **6 modular tabs** switched via `
 - Batch download actions to complete albums.
 
 ### 5. Staging & Library Maintenance Tab (`#pane-staging`)
-- Displays files in `/music_new` awaiting import.
+- **Manual Music Import Dropzone**:
+  - Drag & drop music folders (recursively parses all subfolders and tracks), loose audio files, or `.zip` archives.
+  - "Select Music Folder" directory picker and "Select Audio Files" file picker.
+  - Automatic `.zip` extraction and relative path preservation.
+  - Auto-import switch: automatically triggers Beets identification, metadata embedding, cover art retrieval, and library filing upon upload.
+- Displays files in staging directory awaiting import with 30-second audio preview player.
 - Triggers:
-  - **Import to Library**: Executes `beet import -q`.
+  - **1-Click Beets Import**: Executes `beet import -P -q -m` followed by loose track singleton import.
   - **Sanitize & Deduplicate**: Purges dead paths, phantom entries, and orphan album rows.
   - **Fetch All Artwork**: Runs `beet fetchart -f` across all albums.
   - **Retag Untagged Genres**: Backfills 100% of untagged tracks via Last.fm.
@@ -246,10 +251,10 @@ tail -f /srv/dev-disk-by-uuid-bf30c64b-47b4-4699-b768-f50d51147267/Jacques_Docum
 ### Automated Pipeline Architecture
 1. **GitHub Actions** (`.github/workflows/docker-publish.yml`): Automatically compiles multi-platform Docker images upon pushing to `main`, publishing to `ghcr.io/<owner>/music-manager:latest`.
 2. **Watchtower Auto-Updater**: Runs as an isolated companion container on the client machine, checking `ghcr.io` every 3600 seconds and performing zero-downtime rolling updates with automatic image cleanup.
-3. **Brother Distribution Bundle** (`brother-package/`):
+3. **Client Distribution Bundle** (`music-manager-client/`):
    - `docker-compose.yml`: Client compose file running `music-manager` (from GHCR) and `watchtower`.
-   - `.env.example`: Configurable client paths for `MUSIC_PATH`, `NEW_MUSIC_PATH`, `PORT`, and `OLLAMA_HOST`.
-   - `SETUP_GUIDE.md`: Step-by-step walkthrough for client setup.
+   - `.env.example`: Single-path base storage declaration (`STORAGE_PATH`), `PORT`, and optional `OLLAMA_HOST`.
+   - `README.md`: 3-step quick installation guide and OMV/NAS instructions.
 4. **Auto-Seeding Defaults**: `MusicManagerService._ensure_beets_config()` automatically creates a working `config.yaml` on first startup if the mounted config volume is empty.
 
 
