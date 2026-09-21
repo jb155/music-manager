@@ -16,6 +16,22 @@ import urllib.error
 import urllib.parse
 from typing import AsyncGenerator, List, Dict, Any, Optional
 
+# Ensure HOME and XDG environment variables point to a writable config directory
+# to prevent SpotDL, Spotipy, and yt-dlp from failing with PermissionError when running as unprivileged user
+_storage_dir = os.environ.get("STORAGE_DIR")
+_default_config = os.path.join(_storage_dir, "config") if _storage_dir else "/config"
+if not os.environ.get("HOME") or os.environ.get("HOME") == "/":
+    os.environ["HOME"] = _default_config
+if not os.environ.get("XDG_CONFIG_HOME"):
+    os.environ["XDG_CONFIG_HOME"] = _default_config
+if not os.environ.get("XDG_CACHE_HOME"):
+    os.environ["XDG_CACHE_HOME"] = os.path.join(_default_config, ".cache")
+try:
+    os.makedirs(os.path.join(_default_config, "spotdl"), exist_ok=True)
+    os.makedirs(os.path.join(_default_config, ".cache"), exist_ok=True)
+except Exception:
+    pass
+
 logger = logging.getLogger("music_manager")
 
 def normalize_ollama_host(host_str: str) -> str:
@@ -171,6 +187,18 @@ class MusicManagerService:
         os.makedirs(self.new_music_dir, exist_ok=True)
         os.makedirs(self.beets_dir, exist_ok=True)
         self._ensure_beets_config()
+
+        # Set writable config and cache directory for SpotDL, Spotipy, and yt-dlp in non-root containers
+        self.config_dir = os.environ.get("CONFIG_DIR") or (os.path.join(self.storage_dir, "config") if self.storage_dir else os.path.dirname(self.beets_dir) or "/config")
+        os.environ["HOME"] = self.config_dir
+        os.environ["XDG_CONFIG_HOME"] = self.config_dir
+        os.environ["XDG_CACHE_HOME"] = os.path.join(self.config_dir, ".cache")
+        try:
+            os.makedirs(self.config_dir, exist_ok=True)
+            os.makedirs(os.path.join(self.config_dir, "spotdl"), exist_ok=True)
+            os.makedirs(os.path.join(self.config_dir, ".cache"), exist_ok=True)
+        except Exception as e:
+            logger.warning(f"Could not create config/spotdl cache dirs: {e}")
 
         # Automatically ensure spotapi doesn't hang on code.thetadev.de timeouts
         self._ensure_spotapi_patched()
@@ -565,6 +593,9 @@ paths:
             run_env.update(env)
         run_env["BEETSDIR"] = self.beets_dir
         run_env["PYTHONUNBUFFERED"] = "1"
+        run_env["HOME"] = self.config_dir
+        run_env["XDG_CONFIG_HOME"] = self.config_dir
+        run_env["XDG_CACHE_HOME"] = os.path.join(self.config_dir, ".cache")
 
         await self.broadcast_log(f"\n[RUNNING] {' '.join(cmd)}\n")
 
@@ -1338,6 +1369,9 @@ paths:
     async def get_library_stats(self) -> Dict[str, Any]:
         run_env = os.environ.copy()
         run_env["BEETSDIR"] = self.beets_dir
+        run_env["HOME"] = self.config_dir
+        run_env["XDG_CONFIG_HOME"] = self.config_dir
+        run_env["XDG_CACHE_HOME"] = os.path.join(self.config_dir, ".cache")
 
         proc = await asyncio.create_subprocess_exec(
             "beet", "stats",

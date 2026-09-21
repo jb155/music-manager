@@ -4,6 +4,22 @@ import os
 import time
 import asyncio
 import urllib.request
+
+# Ensure HOME and XDG environment variables point to a writable config directory
+# to prevent SpotDL, Spotipy, and yt-dlp from failing with PermissionError when running as unprivileged user
+_storage_dir = os.environ.get("STORAGE_DIR")
+_default_config = os.path.join(_storage_dir, "config") if _storage_dir else "/config"
+if not os.environ.get("HOME") or os.environ.get("HOME") == "/":
+    os.environ["HOME"] = _default_config
+if not os.environ.get("XDG_CONFIG_HOME"):
+    os.environ["XDG_CONFIG_HOME"] = _default_config
+if not os.environ.get("XDG_CACHE_HOME"):
+    os.environ["XDG_CACHE_HOME"] = os.path.join(_default_config, ".cache")
+try:
+    os.makedirs(os.path.join(_default_config, "spotdl"), exist_ok=True)
+    os.makedirs(os.path.join(_default_config, ".cache"), exist_ok=True)
+except Exception:
+    pass
 from datetime import datetime, timedelta
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, FileResponse, Response
@@ -63,7 +79,7 @@ def ensure_spotapi_patched():
 ensure_spotapi_patched()
 
 
-APP_VERSION = "1.3.3"
+APP_VERSION = "1.3.4"
 
 app = FastAPI(title="Music Manager Web", version=APP_VERSION)
 

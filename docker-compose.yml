@@ -10,6 +10,9 @@ services:
       - MUSIC_DIR=/music
       - NEW_MUSIC_DIR=/music_new
       - BEETSDIR=/config/beets
+      - HOME=/config
+      - XDG_CONFIG_HOME=/config
+      - XDG_CACHE_HOME=/config/.cache
       - PYTHONUNBUFFERED=1
       - PREVIEW_DIR=/.music_preview
       - OLLAMA_HOST=${OLLAMA_HOST:-http://192.168.178.31:11434}

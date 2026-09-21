@@ -1,5 +1,5 @@
 {
-  "version": "1.3.3",
+  "version": "1.3.4",
   "release_date": "2026-09-21",
-  "notes": "Added Syncthing temp file filters, Beets permissions plugin (0664 cover art), daily midnight deduplication, unprivileged Docker compose user, and subtle version watermark."
+  "notes": "Fixed SpotDL and yt-dlp permission denied error in unprivileged containers by properly routing HOME, XDG_CONFIG_HOME, and XDG_CACHE_HOME to /config."
 }

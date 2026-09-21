@@ -9,6 +9,9 @@ services:
     environment:
       # Base storage directory: system automatically manages /music, /music_new, /config, etc.
       - STORAGE_DIR=/storage
+      - HOME=/storage/config
+      - XDG_CONFIG_HOME=/storage/config
+      - XDG_CACHE_HOME=/storage/config/.cache
       - PYTHONUNBUFFERED=1
       - OLLAMA_HOST=${OLLAMA_HOST:-}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3.5:9b}
