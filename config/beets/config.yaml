@@ -2,6 +2,7 @@
 
 directory: /music
 library: /config/beets/library.db
+asciify_paths: yes
 
 plugins: ftintitle inline missing duplicates fetchart embedart musicbrainz lastgenre
 
@@ -27,6 +28,9 @@ import:
     duplicate_action: merge
     incremental: yes
     group_albums: yes
+    duplicate_keys:
+        album: albumartist album
+        item: artist title
 
 missing:
     count: no
@@ -47,9 +51,12 @@ item_fields:
             art = "Unknown Artist"
         art = re.split(r'[\s(]+(?:[Ff]eat\.?|[Ff]t\.?|[Ff]eaturing)\s+', art)[0].strip()
         art = re.split(r'\s+(?:&|,|x|X|×)\s+', art)[0].strip()
+        art = art.replace("’", "'").replace("‘", "'").replace('“', '"').replace('”', '"').replace('‐', '-').replace('–', '-').replace('—', '-')
+        art = re.sub(r'\s+', ' ', art).strip()
         return art
 
     custom_track_name: |
+        import re
         try: d = disc
         except NameError: d = 0
         
@@ -67,6 +74,9 @@ item_fields:
         try:
             if title: tit = title
         except NameError: pass
+        
+        tit = tit.replace("’", "'").replace("‘", "'").replace('“', '"').replace('”', '"').replace('‐', '-').replace('–', '-').replace('—', '-')
+        tit = re.sub(r'\s+', ' ', tit).strip()
                 
         return f"{disc_str}{track_str}{tit}"
 
@@ -85,15 +95,20 @@ album_fields:
             art = "Unknown Artist"
         art = re.split(r'[\s(]+(?:[Ff]eat\.?|[Ff]t\.?|[Ff]eaturing)\s+', art)[0].strip()
         art = re.split(r'\s+(?:&|,|x|X|×)\s+', art)[0].strip()
+        art = art.replace("’", "'").replace("‘", "'").replace('“', '"').replace('”', '"').replace('‐', '-').replace('–', '-').replace('—', '-')
+        art = re.sub(r'\s+', ' ', art).strip()
         return art
         
     custom_album: |
+        import re
         alb = ""
         try:
             if album: alb = album
         except NameError: pass
         if not alb:
             alb = "Non-Album"
+        alb = alb.replace("’", "'").replace("‘", "'").replace('“', '"').replace('”', '"').replace('‐', '-').replace('–', '-').replace('—', '-')
+        alb = re.sub(r'\s+', ' ', alb).strip()
         return alb
 
 paths:
@@ -115,9 +130,9 @@ lastgenre:
     canonical: yes
 
 duplicates:
-    album: yes
-    path: yes
+    album: no
+    path: no
+    keys: [album_id, track]
     tiebreak:
         items: [bitrate, format]
     strict: no
-

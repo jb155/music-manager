@@ -208,6 +208,7 @@ class MusicManagerService:
         db_path = os.path.join(self.beets_dir, "library.db")
         default_yaml = """directory: __MUSIC_DIR__
 library: __LIBRARY_DB__
+asciify_paths: yes
 
 plugins: ftintitle inline missing duplicates fetchart embedart musicbrainz lastgenre
 
@@ -226,8 +227,9 @@ embedart:
     maxwidth: 1200
 
 duplicates:
-    album: yes
-    path: yes
+    album: no
+    path: no
+    keys: [album_id, track]
     tiebreak:
         items: [bitrate, format]
     strict: no
@@ -240,6 +242,9 @@ import:
     duplicate_action: merge
     group_albums: yes
     incremental: yes
+    duplicate_keys:
+        album: albumartist album
+        item: artist title
 
 missing:
     count: no
@@ -260,9 +265,12 @@ item_fields:
             art = "Unknown Artist"
         art = re.split(r'[\\s(]+(?:[Ff]eat\\.?|[Ff]t\\.?|[Ff]eaturing)\\s+', art)[0].strip()
         art = re.split(r'\\s+(?:&|,|x|X|×)\\s+', art)[0].strip()
+        art = art.replace("’", "'").replace("‘", "'").replace('“', '"').replace('”', '"').replace('‐', '-').replace('–', '-').replace('—', '-')
+        art = re.sub(r'\\s+', ' ', art).strip()
         return art
 
     custom_track_name: |
+        import re
         try: d = disc
         except NameError: d = 0
         try: td = totaldiscs
@@ -275,6 +283,8 @@ item_fields:
         try:
             if title: tit = title
         except NameError: pass
+        tit = tit.replace("’", "'").replace("‘", "'").replace('“', '"').replace('”', '"').replace('‐', '-').replace('–', '-').replace('—', '-')
+        tit = re.sub(r'\\s+', ' ', tit).strip()
         return f"{disc_str}{track_str}{tit}"
 
 album_fields:
@@ -292,15 +302,20 @@ album_fields:
             art = "Unknown Artist"
         art = re.split(r'[\\s(]+(?:[Ff]eat\\.?|[Ff]t\\.?|[Ff]eaturing)\\s+', art)[0].strip()
         art = re.split(r'\\s+(?:&|,|x|X|×)\\s+', art)[0].strip()
+        art = art.replace("’", "'").replace("‘", "'").replace('“', '"').replace('”', '"').replace('‐', '-').replace('–', '-').replace('—', '-')
+        art = re.sub(r'\\s+', ' ', art).strip()
         return art
 
     custom_album: |
+        import re
         alb = ""
         try:
             if album: alb = album
         except NameError: pass
         if not alb:
             alb = "Non-Album"
+        alb = alb.replace("’", "'").replace("‘", "'").replace('“', '"').replace('”', '"').replace('‐', '-').replace('–', '-').replace('—', '-')
+        alb = re.sub(r'\\s+', ' ', alb).strip()
         return alb
 
 paths:
@@ -2134,71 +2149,261 @@ paths:
             "top_genres": stats
         }
 
+    @staticmethod
+    def _item_quality_score(it: Dict[str, Any]) -> float:
+        """Calculate quality score for an item to select best keeper among duplicates."""
+        format_scores = {
+            'flac': 100, 'wav': 90, 'alac': 90,
+            'aac': 80, 'm4a': 80,
+            'ogg': 70, 'opus': 70,
+            'mp3': 60,
+        }
+        score = 0.0
+        # 1. Album track preference over Non-Album track
+        is_non_alb = (it.get('album') or '').strip().lower() in ('non-album', 'unknown album', '') or not it.get('album_id')
+        if not is_non_alb:
+            score += 100000.0
+
+        # 2. Format score
+        fmt = (it.get('format') or '').lower()
+        score += format_scores.get(fmt, 50) * 1000.0
+
+        # 3. Bitrate (kbps)
+        bitrate = it.get('bitrate') or 0
+        score += min(int(bitrate / 1000), 500) * 10.0
+
+        # 4. Metadata richness
+        meta_points = 0.0
+        if it.get('mb_trackid'): meta_points += 50.0
+        if it.get('acoustid_id'): meta_points += 30.0
+        if it.get('mb_albumid'): meta_points += 20.0
+        if it.get('mb_artistid'): meta_points += 10.0
+        if it.get('isrc'): meta_points += 10.0
+        if it.get('genre'): meta_points += 10.0
+        if it.get('lyrics'): meta_points += 10.0
+        if it.get('year') and it.get('year') > 0: meta_points += 5.0
+        score += meta_points
+
+        # 5. Canonical ASCII path bonus
+        p = it.get('clean_path', '')
+        if '’' not in p and '‐' not in p and '“' not in p and '”' not in p:
+            score += 2.0
+
+        # 6. Newer import ID tiebreak
+        score += (it.get('id', 0) / 1000000.0)
+        return score
+
+    @staticmethod
+    def _normalize_title_for_match(t: str) -> str:
+        if not t:
+            return ""
+        t = t.replace("’", "'").replace("‘", "'").replace('“', '"').replace('”', '"').replace('‐', '-').replace('–', '-').replace('—', '-')
+        t = re.sub(r'[\(\[\{].*?[\)\]\}]', '', t)
+        t = re.sub(r'\bfeat\.?.*$', '', t, flags=re.IGNORECASE)
+        t = re.sub(r'[-–—].*$', '', t)
+        t = re.sub(r'[^a-zA-Z0-9]', '', t.lower())
+        return t.strip()
+
+    @classmethod
+    def _track_titles_match(cls, t1: str, t2: str) -> bool:
+        from difflib import SequenceMatcher
+        n1 = cls._normalize_title_for_match(t1)
+        n2 = cls._normalize_title_for_match(t2)
+        if not n1 or not n2:
+            return False
+        if n1 == n2:
+            return True
+        if n1 in n2 or n2 in n1:
+            if len(n1) >= 4 and len(n2) >= 4:
+                return True
+        return SequenceMatcher(None, n1, n2).ratio() > 0.8
+
     async def sanitize_and_deduplicate_library(self) -> Dict[str, Any]:
-        """Prune dead records, consolidate duplicate physical file references, and normalize paths."""
+        """Prune dead records, consolidate duplicate physical file references, delete lesser duplicates, and normalize paths."""
         db_path = os.path.join(self.beets_dir, "library.db")
         if not os.path.exists(db_path):
             return {"success": False, "error": "Library DB not found"}
 
         try:
+            from collections import defaultdict
+            from difflib import SequenceMatcher
+
             conn = sqlite3.connect(db_path)
             c = conn.cursor()
 
             genre_cache = self._load_genre_cache()
 
-            c.execute("SELECT id, artist, title, path, genre, album_id FROM items")
-            rows = c.fetchall()
+            c.execute("PRAGMA table_info(items)")
+            cols = [col[1] for col in c.fetchall()]
 
+            c.execute("SELECT * FROM items")
+            all_rows = c.fetchall()
+            items = [dict(zip(cols, r)) for r in all_rows]
+
+            # 1. Dead records & physical path resolution
             file_map = {}
-            dead_ids = []
+            dead_ids = set()
 
-            for rid, rart, rtit, rpath, rgenre, ralb in rows:
+            for it in items:
+                rpath = it.get('path')
                 p = rpath.decode('utf-8', 'replace') if isinstance(rpath, bytes) else str(rpath)
                 full_p = p if p.startswith('/') else os.path.join(self.music_dir, p)
                 full_p = os.path.normpath(full_p)
+                it['clean_path'] = full_p
                 if os.path.exists(full_p):
                     if full_p not in file_map:
                         file_map[full_p] = []
-                    file_map[full_p].append({
-                        "id": rid,
-                        "artist": rart,
-                        "title": rtit,
-                        "genre": rgenre,
-                        "album_id": ralb,
-                        "canon_path": full_p
-                    })
+                    file_map[full_p].append(it)
                 else:
-                    dead_ids.append(rid)
+                    dead_ids.add(it['id'])
 
-            to_delete = set(dead_ids)
+            to_delete_ids = set(dead_ids)
+            files_to_delete = set()
             to_update_path = []
             to_update_genre = []
 
+            # 2. Consolidate exact same physical path references
             for full_p, entries in file_map.items():
-                with_genre = [e for e in entries if e["genre"] and e["genre"].strip()]
-                if with_genre:
-                    keeper = with_genre[0]
-                    genre = keeper["genre"]
-                else:
-                    keeper = entries[0]
-                    genre = genre_cache.get(keeper["artist"], "")
+                if len(entries) > 1:
+                    sorted_entries = sorted(entries, key=self._item_quality_score, reverse=True)
+                    keeper = sorted_entries[0]
+                    for other in sorted_entries[1:]:
+                        to_delete_ids.add(other['id'])
+                    # If keeper is missing genre, inherit
+                    if not keeper.get('genre'):
+                        for other in sorted_entries[1:]:
+                            if other.get('genre'):
+                                keeper['genre'] = other['genre']
+                                to_update_genre.append((other['genre'], keeper['id']))
+                                break
 
-                for e in entries:
-                    if e["id"] != keeper["id"]:
-                        to_delete.add(e["id"])
+            # 3. Duplicate clustering using union-find
+            parent = {it['id']: it['id'] for it in items if it['id'] not in to_delete_ids}
+            def find(i):
+                if parent[i] != i:
+                    parent[i] = find(parent[i])
+                return parent[i]
+            def union(i, j):
+                pi, pj = find(i), find(j)
+                if pi != pj:
+                    parent[pi] = pj
 
-                to_update_path.append((full_p.encode('utf-8'), keeper["id"]))
-                if genre and (not keeper["genre"] or not keeper["genre"].strip()):
-                    to_update_genre.append((genre, keeper["id"]))
+            surviving_items = [it for it in items if it['id'] not in to_delete_ids]
 
-            if to_delete:
-                c.executemany("DELETE FROM items WHERE id = ?", [(did,) for did in to_delete])
-            if to_update_path:
-                c.executemany("UPDATE items SET path = ? WHERE id = ?", to_update_path)
+            # 3a. Group by lower path (case collisions on disk)
+            by_lpath = defaultdict(list)
+            for it in surviving_items:
+                by_lpath[it['clean_path'].lower()].append(it)
+            for lp, group in by_lpath.items():
+                if len(group) > 1:
+                    for it in group[1:]:
+                        union(group[0]['id'], it['id'])
+
+            # 3b. Group within the same album
+            by_album = defaultdict(list)
+            for it in surviving_items:
+                alb_id = it.get('album_id')
+                if alb_id:
+                    by_album[alb_id].append(it)
+
+            for alb_id, alb_items in by_album.items():
+                n = len(alb_items)
+                for i in range(n):
+                    for j in range(i + 1, n):
+                        it_a = alb_items[i]
+                        it_b = alb_items[j]
+
+                        # Same MusicBrainz Track ID
+                        mb_a = it_a.get('mb_trackid')
+                        mb_b = it_b.get('mb_trackid')
+                        if mb_a and mb_b and mb_a == mb_b:
+                            union(it_a['id'], it_b['id'])
+                            continue
+
+                        # Same normalized title & close duration
+                        t_match = self._track_titles_match(it_a.get('title'), it_b.get('title'))
+                        len_a = it_a.get('length') or 0
+                        len_b = it_b.get('length') or 0
+                        d_match = abs(len_a - len_b) <= 15.0 or (len_a == 0 and len_b == 0)
+
+                        if t_match and d_match:
+                            union(it_a['id'], it_b['id'])
+                            continue
+
+                        # Same disc and track number AND similar title
+                        if it_a.get('track') and it_a.get('track') == it_b.get('track'):
+                            disc_a = it_a.get('disc') or 1
+                            disc_b = it_b.get('disc') or 1
+                            if disc_a == disc_b:
+                                ratio = SequenceMatcher(None, self._normalize_title_for_match(it_a.get('title')), self._normalize_title_for_match(it_b.get('title'))).ratio()
+                                if ratio > 0.6 and d_match:
+                                    union(it_a['id'], it_b['id'])
+
+            # 3c. Redundant loose / Non-Album tracks matching cataloged album tracks
+            by_artist = defaultdict(list)
+            for it in surviving_items:
+                art = (it.get('artist') or '').strip().lower()
+                if art:
+                    by_artist[art].append(it)
+
+            for art, art_items in by_artist.items():
+                non_albs = [x for x in art_items if not x.get('album_id') or (x.get('album') or '').strip().lower() in ('non-album', 'unknown album', '')]
+                albs = [x for x in art_items if x.get('album_id') and (x.get('album') or '').strip().lower() not in ('non-album', 'unknown album', '')]
+                for na in non_albs:
+                    for a in albs:
+                        len_na = na.get('length') or 0
+                        len_a = a.get('length') or 0
+                        if self._track_titles_match(na.get('title'), a.get('title')) and (abs(len_na - len_a) <= 8.0 or len_na == 0 or len_a == 0):
+                            union(na['id'], a['id'])
+
+            # Collect clusters
+            clusters = defaultdict(list)
+            for it in surviving_items:
+                root = find(it['id'])
+                clusters[root].append(it)
+
+            dup_clusters = [cl for cl in clusters.values() if len(cl) > 1]
+            deleted_dups_count = 0
+
+            for cl in dup_clusters:
+                sorted_cl = sorted(cl, key=self._item_quality_score, reverse=True)
+                keeper = sorted_cl[0]
+                keeper_path = keeper['clean_path']
+
+                for lesser in sorted_cl[1:]:
+                    to_delete_ids.add(lesser['id'])
+                    del_path = lesser['clean_path']
+                    if os.path.exists(del_path) and os.path.normcase(del_path) != os.path.normcase(keeper_path):
+                        files_to_delete.add(del_path)
+                    # Inherit genre if keeper missing
+                    if not keeper.get('genre') and lesser.get('genre'):
+                        keeper['genre'] = lesser['genre']
+                        to_update_genre.append((lesser['genre'], keeper['id']))
+                    deleted_dups_count += 1
+
+            # 4. Clean Syncthing conflicts on disk
+            for root_dir, dirs, files in os.walk(self.music_dir):
+                for f in files:
+                    if '.sync-conflict-' in f.lower() or f.startswith('.syncthing.'):
+                        files_to_delete.add(os.path.join(root_dir, f))
+
+            # 5. Execute file deletions on disk
+            deleted_disk_files = 0
+            for fp in files_to_delete:
+                try:
+                    if os.path.exists(fp):
+                        os.remove(fp)
+                        deleted_disk_files += 1
+                except Exception as ex:
+                    logger.warning(f"Could not remove duplicate file {fp}: {ex}")
+
+            # 6. Execute DB deletions
+            if to_delete_ids:
+                c.executemany("DELETE FROM items WHERE id = ?", [(did,) for did in to_delete_ids])
             if to_update_genre:
                 c.executemany("UPDATE items SET genre = ? WHERE id = ?", to_update_genre)
 
-            # 1. Artist Casing Normalization across items and albums
+            # 7. Artist Casing Normalization across items and albums
             c.execute("""
                 SELECT lower(COALESCE(NULLIF(albumartist, ''), artist)) as norm,
                        GROUP_CONCAT(DISTINCT COALESCE(NULLIF(albumartist, ''), artist)) as variants
@@ -2218,7 +2423,7 @@ paths:
                 c.execute("UPDATE items SET albumartist = ? WHERE lower(albumartist) = ? AND albumartist != ?", (canonical, norm_art, canonical))
                 c.execute("UPDATE albums SET albumartist = ? WHERE lower(albumartist) = ? AND albumartist != ?", (canonical, norm_art, canonical))
 
-            # 2. Duplicate Album Records Consolidation (same artist and album name)
+            # 8. Duplicate Album Records Consolidation (same artist and album name)
             c.execute("""
                 SELECT lower(COALESCE(NULLIF(a.albumartist, ''), '')) as norm_artist,
                        lower(a.album) as norm_album,
@@ -2264,36 +2469,7 @@ paths:
                     WHERE id = ?
                 """, (artpath_to_use, year_to_use, genre_to_use, primary_id))
 
-            # 3. Prune Redundant Non-Album duplicate tracks (audio that already exists in a cataloged album)
-            c.execute("SELECT id, artist, title, album, length, path FROM items")
-            all_items = c.fetchall()
-            from collections import defaultdict
-            cat_by_art = defaultdict(list)
-            non_alb_items = []
-            for r in all_items:
-                alb_l = (r[3] or "").strip().lower()
-                if not alb_l or alb_l in ('non-album', 'unknown album'):
-                    non_alb_items.append(r)
-                else:
-                    cat_by_art[(r[1] or "").strip().lower()].append(r)
-
-            for n_item in non_alb_items:
-                nid, nart, ntit, nalb, nlen, npath = n_item
-                for c_item in cat_by_art.get((nart or "").strip().lower(), []):
-                    if nlen and c_item[4] and abs(nlen - c_item[4]) < 5:
-                        n_clean = "".join(ch for ch in ntit.lower() if ch.isalnum())
-                        c_clean = "".join(ch for ch in c_item[2].lower() if ch.isalnum())
-                        if n_clean in c_clean or c_clean in n_clean:
-                            c.execute("DELETE FROM items WHERE id = ?", (nid,))
-                            p = npath.decode('utf-8', 'replace') if isinstance(npath, bytes) else str(npath)
-                            if os.path.exists(p):
-                                try:
-                                    os.remove(p)
-                                except Exception:
-                                    pass
-                            break
-
-            # 4. Prune empty albums and update album genres
+            # 9. Prune empty albums and update album genres
             c.execute("""
                 DELETE FROM albums 
                 WHERE id NOT IN (SELECT DISTINCT album_id FROM items WHERE album_id IS NOT NULL)
@@ -2308,16 +2484,29 @@ paths:
             conn.commit()
             conn.close()
 
+            # 10. Clean empty directories under music_dir
+            cleaned_dirs = 0
+            for root_dir, dirs, files in os.walk(self.music_dir, topdown=False):
+                for dir_name in dirs:
+                    full_dir = os.path.join(root_dir, dir_name)
+                    try:
+                        if not os.listdir(full_dir):
+                            os.rmdir(full_dir)
+                            cleaned_dirs += 1
+                    except Exception:
+                        pass
+
             # Refresh disk count cache
             self.count_disk_files(force_refresh=True)
 
-            msg = f"[SANITY] Pruned {len(to_delete)} dead/dup rows, normalized {len(to_update_path)} paths, filled {len(to_update_genre)} genres."
+            msg = f"[SANITY] Pruned {len(to_delete_ids)} records ({deleted_disk_files} duplicate files deleted from disk across {len(dup_clusters)} duplicate groups)."
             await self.broadcast_log(f"{msg}\n")
             return {
                 "success": True,
-                "deleted": len(to_delete),
-                "normalized": len(to_update_path),
-                "genres_filled": len(to_update_genre)
+                "deleted_records": len(to_delete_ids),
+                "deleted_disk_files": deleted_disk_files,
+                "duplicate_groups": len(dup_clusters),
+                "cleaned_empty_dirs": cleaned_dirs
             }
         except Exception as e:
             logger.error(f"Error during library sanitization: {e}", exc_info=True)
