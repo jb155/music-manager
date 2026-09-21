@@ -18,7 +18,11 @@ ignore:
     - '.stignore'
 ignore_hidden: yes
 
-plugins: ftintitle inline missing duplicates fetchart embedart musicbrainz lastgenre
+plugins: ftintitle inline missing duplicates permissions fetchart embedart musicbrainz lastgenre
+
+permissions:
+    file: 664
+    dir: 775
 
 fetchart:
     auto: yes
@@ -144,9 +148,8 @@ lastgenre:
     canonical: yes
 
 duplicates:
-    album: no
-    path: no
-    keys: [album_id, track]
+    album: yes
+    path: yes
     tiebreak:
         items: [bitrate, format]
     strict: no

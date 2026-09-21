@@ -1,6 +1,7 @@
 services:
   music-manager:
     container_name: music_manager
+    user: "${PUID:-1000}:${PGID:-100}"
     build: .
     restart: unless-stopped
     ports:

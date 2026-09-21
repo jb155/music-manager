@@ -2,6 +2,7 @@ services:
   music-manager:
     image: ${IMAGE_NAME:-ghcr.io/jb155/music-manager:latest}
     container_name: music_manager
+    user: "${PUID:-1000}:${PGID:-100}"
     restart: unless-stopped
     ports:
       - "${PORT:-8085}:8085"

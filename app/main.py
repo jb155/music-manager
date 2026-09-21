@@ -96,23 +96,28 @@ async def on_startup():
 
     asyncio.create_task(periodic_preview_cleanup())
 
-    # Periodic background task: automatically deduplicate and sanitize library once daily at 00:00 midnight
+    # Periodic background task: automatically deduplicate and sanitize library after sync
     async def periodic_library_sanitization():
+        await asyncio.sleep(30)
         while True:
-            try:
-                now = datetime.now()
-                # Compute next midnight (00:00:00)
-                tomorrow = (now + timedelta(days=1)).date()
-                next_midnight = datetime.combine(tomorrow, datetime.min.time())
-                sleep_seconds = max((next_midnight - now).total_seconds(), 5.0)
-            except Exception:
-                sleep_seconds = 86400.0
-
-            await asyncio.sleep(sleep_seconds)
             try:
                 await service.sanitize_and_deduplicate_library()
             except Exception:
                 pass
+
+            interval_env = os.environ.get("RECONCILIATION_INTERVAL_HOURS", "").strip()
+            if interval_env and interval_env.isdigit() and int(interval_env) > 0:
+                sleep_seconds = int(interval_env) * 3600
+            else:
+                try:
+                    now = datetime.now()
+                    tomorrow = (now + timedelta(days=1)).date()
+                    next_midnight = datetime.combine(tomorrow, datetime.min.time())
+                    sleep_seconds = max((next_midnight - now).total_seconds(), 5.0)
+                except Exception:
+                    sleep_seconds = 21600  # 6 hours fallback
+
+            await asyncio.sleep(sleep_seconds)
 
     asyncio.create_task(periodic_library_sanitization())
 

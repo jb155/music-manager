@@ -47,6 +47,10 @@ function initUpdateBadge() {
     if (badge) {
         badge.addEventListener("click", () => showUpdateModal());
     }
+    const watermark = document.getElementById("app-version-watermark");
+    if (watermark) {
+        watermark.addEventListener("click", () => showUpdateModal());
+    }
 }
 
 async function checkAppVersion() {
@@ -70,6 +74,11 @@ async function checkAppVersion() {
                 badge.style.display = "none";
                 badge.classList.add("hidden");
             }
+        }
+
+        const watermark = document.getElementById("app-version-watermark");
+        if (watermark && data.current_version) {
+            watermark.innerHTML = `<i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v${data.current_version}`;
         }
     } catch (e) {
         console.debug("Update check skipped:", e);

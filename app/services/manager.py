@@ -209,8 +209,26 @@ class MusicManagerService:
         default_yaml = """directory: __MUSIC_DIR__
 library: __LIBRARY_DB__
 asciify_paths: yes
+ignore:
+    - '.*'
+    - '*~'
+    - 'System Volume Information'
+    - 'lost+found'
+    - '.syncthing*'
+    - '*.tmp'
+    - '*.part'
+    - '*.crdownload'
+    - '*.sync-conflict-*'
+    - '.stfolder'
+    - '.stversions'
+    - '.stignore'
+ignore_hidden: yes
 
-plugins: ftintitle inline missing duplicates fetchart embedart musicbrainz lastgenre
+plugins: ftintitle inline missing duplicates permissions fetchart embedart musicbrainz lastgenre
+
+permissions:
+    file: 664
+    dir: 775
 
 fetchart:
     auto: yes
@@ -227,9 +245,8 @@ embedart:
     maxwidth: 1200
 
 duplicates:
-    album: no
-    path: no
-    keys: [album_id, track]
+    album: yes
+    path: yes
     tiebreak:
         items: [bitrate, format]
     strict: no
@@ -1437,6 +1454,14 @@ paths:
                 await self.broadcast_log("\n[STEP 2/2] Embedding cover art into audio files...\n")
                 await self._run_command(["beet", "embedart", "-y"], timeout=600)
 
+                # Defensively enforce group-readable permissions on all cover art
+                for root, _, files in os.walk(self.music_dir):
+                    for f in files:
+                        if f.lower().startswith("cover."):
+                            try:
+                                os.chmod(os.path.join(root, f), 0o664)
+                            except Exception:
+                                pass
                 await self.broadcast_log("\n[OK] Album art fetching and embedding finished!\n")
         except Exception as e:
             logger.error(f"Error in fetch_all_art: {e}", exc_info=True)
@@ -2534,6 +2559,15 @@ paths:
                             cleaned_dirs += 1
                     except Exception:
                         pass
+
+            # 11. Defensively enforce group-readable permissions on all cover art files
+            for root_dir, _, files in os.walk(self.music_dir):
+                for f in files:
+                    if f.lower().startswith("cover."):
+                        try:
+                            os.chmod(os.path.join(root_dir, f), 0o664)
+                        except Exception:
+                            pass
 
             # Refresh disk count cache
             self.count_disk_files(force_refresh=True)
