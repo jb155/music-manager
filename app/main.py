@@ -63,7 +63,7 @@ def ensure_spotapi_patched():
 ensure_spotapi_patched()
 
 
-APP_VERSION = "1.3.2"
+APP_VERSION = "1.3.3"
 
 app = FastAPI(title="Music Manager Web", version=APP_VERSION)
 
@@ -218,10 +218,10 @@ def parse_semver(v: str):
     return tuple(parts)
 
 @app.get("/api/version")
-async def get_version_info():
+async def get_version_info(refresh: bool = False):
     """Check for new versions from GitHub repository."""
     now = time.time()
-    if _version_cache["data"] and (now - _version_cache["last_check"] < 3600):
+    if not refresh and _version_cache["data"] and (now - _version_cache["last_check"] < 3600):
         return _version_cache["data"]
 
     remote_version = APP_VERSION
