@@ -30,56 +30,14 @@ from typing import List, Optional, Dict, Any
 
 from app.services.manager import MusicManagerService
 
-def ensure_spotapi_patched():
-    """Ensure spotapi and SpotipyFree are defensively patched against GraphQL NoneType crashes."""
-    try:
-        import spotapi.song
-        s_file = spotapi.song.__file__
-        if s_file and os.path.exists(s_file):
-            with open(s_file, "r", encoding="utf-8") as f:
-                content = f.read()
-            old_paginate = 'total_count: int = songs["data"]["searchV2"]["tracksV2"]["totalCount"]\n\n        yield songs["data"]["searchV2"]["tracksV2"]["items"]'
-            if old_paginate in content:
-                safe_paginate = """if not isinstance(songs, dict):
-            return
-        tracks_v2 = (songs.get("data") or {}).get("searchV2", {}).get("tracksV2")
-        if not isinstance(tracks_v2, dict):
-            return
-        total_count: int = tracks_v2.get("totalCount") or 0
-        yield tracks_v2.get("items") or []"""
-                content = content.replace(old_paginate, safe_paginate)
-                with open(s_file, "w", encoding="utf-8") as f:
-                    f.write(content)
-
-        import SpotipyFree
-        sp_file = os.path.join(os.path.dirname(SpotipyFree.__file__), "Spotify.py")
-        if sp_file and os.path.exists(sp_file):
-            with open(sp_file, "r", encoding="utf-8") as f:
-                sp_content = f.read()
-            old_sp = '        for results in pages:  #< save first page\n            break\n\n        tracks = []\n        for res in results:'
-            if old_sp in sp_content:
-                safe_sp = """        results = []
-        try:
-            for p in pages:
-                results = p or []
-                break
-        except Exception:
-            results = []
-
-        tracks = []
-        for res in results:
-            if not isinstance(res, dict):
-                continue"""
-                sp_content = sp_content.replace(old_sp, safe_sp)
-                with open(sp_file, "w", encoding="utf-8") as f:
-                    f.write(sp_content)
-    except Exception:
-        pass
-
-ensure_spotapi_patched()
+try:
+    from app.patch_packages import patch_all
+    patch_all()
+except Exception:
+    pass
 
 
-APP_VERSION = "1.3.4"
+APP_VERSION = "1.3.5"
 
 app = FastAPI(title="Music Manager Web", version=APP_VERSION)
 

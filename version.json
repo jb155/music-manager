@@ -1,5 +1,5 @@
 {
-  "version": "1.3.4",
+  "version": "1.3.5",
   "release_date": "2026-09-21",
-  "notes": "Fixed SpotDL and yt-dlp permission denied error in unprivileged containers by properly routing HOME, XDG_CONFIG_HOME, and XDG_CACHE_HOME to /config."
+  "notes": "Unified and hardened package patching (patch_packages.py) for spotapi, SpotipyFree, and spotdl, ensuring flawless non-root container startup across all nodes."
 }

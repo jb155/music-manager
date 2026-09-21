@@ -200,9 +200,8 @@ class MusicManagerService:
         except Exception as e:
             logger.warning(f"Could not create config/spotdl cache dirs: {e}")
 
-        # Automatically ensure spotapi doesn't hang on code.thetadev.de timeouts
-        self._ensure_spotapi_patched()
-        self._ensure_spotdl_patched()
+        # Defensively ensure spotapi, SpotipyFree, and spotdl are patched and resilient
+        self._ensure_packages_patched()
 
     def get_storage_info(self) -> Dict[str, Any]:
         """Return configured base storage paths, subfolders, and database health."""
@@ -405,61 +404,13 @@ paths:
         except Exception as e:
             logger.warning(f"Could not save ollama_servers.json: {e}")
 
-    def _ensure_spotapi_patched(self):
-        """Ensure spotapi's get_latest_totp_secret returns fallback secret directly to avoid code.thetadev.de timeouts."""
+    def _ensure_packages_patched(self):
+        """Ensure spotapi, SpotipyFree, and spotdl are patched with timeout and query resilience."""
         try:
-            import spotapi.client
-            fpath = getattr(spotapi.client, '__file__', None)
-            if not fpath or not os.path.exists(fpath):
-                return
-            with open(fpath, "r", encoding="utf-8") as f:
-                content = f.read()
-            old_pattern = '    try:\n        url = "https://code.thetadev.de/ThetaDev/spotify-secrets/raw/branch/main/secrets/secretDict.json"'
-            if old_pattern in content:
-                new_pattern = '    return _FALLBACK_SECRET\n    try:\n        url = "https://code.thetadev.de/ThetaDev/spotify-secrets/raw/branch/main/secrets/secretDict.json"'
-                content = content.replace(old_pattern, new_pattern)
-                with open(fpath, "w", encoding="utf-8") as f:
-                    f.write(content)
-                logger.info("[SPOTAPI PATCH] Successfully patched spotapi.client to use instant fallback secrets.")
+            from app.patch_packages import patch_all
+            patch_all()
         except Exception as e:
-            logger.debug(f"[SPOTAPI PATCH] Spotapi patch check skipped: {e}")
-
-    def _ensure_spotdl_patched(self):
-        """Ensure spotdl's Song.from_search_term includes fallback query variations when initial search returns 0 items."""
-        try:
-            import spotdl.types.song as st
-            fpath = getattr(st, '__file__', None)
-            if not fpath or not os.path.exists(fpath):
-                return
-            with open(fpath, "r", encoding="utf-8") as f:
-                content = f.read()
-            target = '        if len(raw_search_results["tracks"]["items"]) == 0:\n            raise SongError(f"No results found for: {search_term}")'
-            if target in content:
-                replacement = (
-                    '        if len(raw_search_results["tracks"]["items"]) == 0:\n'
-                    '            if " - " in search_term:\n'
-                    '                try:\n'
-                    '                    alt = Song.search(search_term.replace(" - ", " "))\n'
-                    '                    if alt and len(alt.get("tracks", {}).get("items", [])) > 0:\n'
-                    '                        raw_search_results = alt\n'
-                    '                except Exception:\n'
-                    '                    pass\n'
-                    '            if len(raw_search_results["tracks"]["items"]) == 0:\n'
-                    '                try:\n'
-                    '                    alt = Song.search(search_term.title().replace(" - ", " "))\n'
-                    '                    if alt and len(alt.get("tracks", {}).get("items", [])) > 0:\n'
-                    '                        raw_search_results = alt\n'
-                    '                except Exception:\n'
-                    '                    pass\n'
-                    '        if len(raw_search_results["tracks"]["items"]) == 0:\n'
-                    '            raise SongError(f"No results found for: {search_term}")'
-                )
-                content = content.replace(target, replacement)
-                with open(fpath, "w", encoding="utf-8") as f:
-                    f.write(content)
-                logger.info("[SPOTDL PATCH] Successfully patched spotdl.types.song with fallback search resilience.")
-        except Exception as e:
-            logger.debug(f"[SPOTDL PATCH] Spotdl patch check skipped: {e}")
+            logger.debug(f"Package patch check skipped: {e}")
 
     async def broadcast_log(self, text: str):
         """Broadcast log message to all active SSE subscribers."""
