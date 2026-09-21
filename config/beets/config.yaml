@@ -3,6 +3,20 @@
 directory: /music
 library: /config/beets/library.db
 asciify_paths: yes
+ignore:
+    - '.*'
+    - '*~'
+    - 'System Volume Information'
+    - 'lost+found'
+    - '.syncthing*'
+    - '*.tmp'
+    - '*.part'
+    - '*.crdownload'
+    - '*.sync-conflict-*'
+    - '.stfolder'
+    - '.stversions'
+    - '.stignore'
+ignore_hidden: yes
 
 plugins: ftintitle inline missing duplicates fetchart embedart musicbrainz lastgenre
 

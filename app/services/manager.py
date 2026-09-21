@@ -1130,10 +1130,15 @@ paths:
 
             # Step 2b: If loose tracks remain that could not be matched as full albums, import them as singletons
             audio_exts = {".mp3", ".flac", ".m4a", ".ogg", ".wav", ".opus", ".aac"}
-            staging_audio = [
-                f for root, _, files in os.walk(self.new_music_dir)
-                for f in files if os.path.splitext(f)[1].lower() in audio_exts
-            ]
+            staging_audio = []
+            for root, dirs, files in os.walk(self.new_music_dir):
+                dirs[:] = [d for d in dirs if not d.startswith(".st") and not d.startswith(".syncthing") and d not in {".stfolder", ".stversions"}]
+                for f in files:
+                    if self.is_ignored_staging_file(f):
+                        continue
+                    if os.path.splitext(f)[1].lower() in audio_exts:
+                        staging_audio.append(f)
+
             if staging_audio and not self._abort_requested:
                 await self.broadcast_log(f"\n[STEP 2b] Importing {len(staging_audio)} loose track(s) as singletons...\n")
                 singleton_cmd = ["beet", "import", "-P", "-q", "-m", "-s", self.new_music_dir]
@@ -1146,6 +1151,7 @@ paths:
 
                 cleaned_files = 0
                 for root, dirs, files in os.walk(self.new_music_dir, topdown=False):
+                    dirs[:] = [d for d in dirs if not d.startswith(".st") and not d.startswith(".syncthing") and d not in {".stfolder", ".stversions"}]
                     for file in files:
                         if file.startswith(".spotdl") or file.endswith(".spotdl"):
                             try:
@@ -1154,18 +1160,23 @@ paths:
                             except Exception:
                                 pass
                     for dir_name in dirs:
+                        if dir_name.startswith(".st") or dir_name.startswith(".syncthing") or dir_name in {".stfolder", ".stversions"}:
+                            continue
                         dir_path = os.path.join(root, dir_name)
-                        if not os.listdir(dir_path):
-                            try:
+                        try:
+                            if not os.listdir(dir_path):
                                 os.rmdir(dir_path)
-                            except Exception:
-                                pass
+                        except Exception:
+                            pass
 
                 for root, dirs, files in os.walk(self.new_music_dir):
+                    dirs[:] = [d for d in dirs if not d.startswith(".st") and not d.startswith(".syncthing") and d not in {".stfolder", ".stversions"}]
                     for file in files:
+                        if self.is_ignored_staging_file(file):
+                            continue
                         ext = os.path.splitext(file)[1].lower()
                         if ext in audio_exts:
-                            rel_path = os.path.relpath(os.path.join(root, file), self.new_music_dir)
+                            rel_path = os.path.relpath(os.path.join(root, file), self.new_music_dir).replace("\\", "/")
                             leftovers.append(rel_path)
 
                 if leftovers:
@@ -1253,10 +1264,35 @@ paths:
 
         return {"filename": filename, "path": safe_rel_path, "type": "file", "bytes": bytes_written}
 
+    @staticmethod
+    def is_ignored_staging_file(filename: str) -> bool:
+        """Filter out Syncthing temp files, conflict copies, partial downloads, and OS metadata."""
+        if not filename:
+            return True
+        f_lower = filename.lower().strip()
+        # Syncthing temporary or partial sync files (e.g. .syncthing.track.mp3.tmp)
+        if f_lower.startswith(".syncthing") or f_lower.endswith(".tmp"):
+            return True
+        # Partial downloads
+        if f_lower.endswith(".part") or f_lower.endswith(".crdownload"):
+            return True
+        # Syncthing conflict files
+        if ".sync-conflict-" in f_lower:
+            return True
+        # SpotDL artifacts
+        if f_lower.startswith(".spotdl") or f_lower.endswith(".spotdl"):
+            return True
+        # OS / macOS resource forks and files
+        if f_lower.startswith("._") or f_lower in {".ds_store", "thumbs.db", "ehthumbs.db", "desktop.ini", ".stignore"}:
+            return True
+        return False
+
     def get_staging_files(self) -> List[Dict[str, Any]]:
         # Check /app for any stray files and move to /music_new
         try:
             for f in os.listdir("/app"):
+                if self.is_ignored_staging_file(f):
+                    continue
                 if f.lower().endswith((".mp3", ".flac", ".m4a", ".ogg")):
                     os.rename(os.path.join("/app", f), os.path.join(self.new_music_dir, f))
         except Exception:
@@ -1264,12 +1300,15 @@ paths:
 
         items = []
         audio_exts = {".mp3", ".flac", ".m4a", ".ogg", ".wav", ".opus", ".aac"}
-        for root, _, files in os.walk(self.new_music_dir):
+        for root, dirs, files in os.walk(self.new_music_dir):
+            dirs[:] = [d for d in dirs if not d.startswith(".st") and not d.startswith(".syncthing") and d not in {".stfolder", ".stversions"}]
             for file in files:
+                if self.is_ignored_staging_file(file):
+                    continue
                 file_path = os.path.join(root, file)
                 ext = os.path.splitext(file)[1].lower()
                 size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
-                rel_path = os.path.relpath(file_path, self.new_music_dir)
+                rel_path = os.path.relpath(file_path, self.new_music_dir).replace("\\", "/")
                 items.append({
                     "name": file,
                     "path": rel_path,
@@ -2721,6 +2760,8 @@ paths:
         norm_rel = rel_path.lstrip("/\\")
         full_path = os.path.normpath(os.path.join(self.new_music_dir, norm_rel))
         if not os.path.exists(full_path) or not full_path.startswith(self.new_music_dir):
+            return None
+        if self.is_ignored_staging_file(os.path.basename(full_path)):
             return None
 
         h = hashlib.md5(norm_rel.encode("utf-8")).hexdigest()[:16]

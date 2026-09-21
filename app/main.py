@@ -4,6 +4,7 @@ import os
 import time
 import asyncio
 import urllib.request
+from datetime import datetime, timedelta
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -95,15 +96,23 @@ async def on_startup():
 
     asyncio.create_task(periodic_preview_cleanup())
 
-    # Periodic background task: automatically deduplicate and sanitize library after sync
+    # Periodic background task: automatically deduplicate and sanitize library once daily at 00:00 midnight
     async def periodic_library_sanitization():
-        await asyncio.sleep(30)
         while True:
+            try:
+                now = datetime.now()
+                # Compute next midnight (00:00:00)
+                tomorrow = (now + timedelta(days=1)).date()
+                next_midnight = datetime.combine(tomorrow, datetime.min.time())
+                sleep_seconds = max((next_midnight - now).total_seconds(), 5.0)
+            except Exception:
+                sleep_seconds = 86400.0
+
+            await asyncio.sleep(sleep_seconds)
             try:
                 await service.sanitize_and_deduplicate_library()
             except Exception:
                 pass
-            await asyncio.sleep(21600)  # Every 6 hours
 
     asyncio.create_task(periodic_library_sanitization())
 
