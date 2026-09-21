@@ -16,6 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
     audioManager = new AudioManager();
     initLibraryBrowser();
     startStatusPoller();
+    initUpdateBadge();
     checkAppVersion();
 });
 
@@ -40,6 +41,13 @@ function showToast(message, type = "info") {
 
 // Version & Update Check
 let _latestVersionInfo = null;
+
+function initUpdateBadge() {
+    const badge = document.getElementById("update-badge");
+    if (badge) {
+        badge.addEventListener("click", () => showUpdateModal());
+    }
+}
 
 async function checkAppVersion() {
     try {
@@ -68,9 +76,28 @@ async function checkAppVersion() {
     }
 }
 
-function showUpdateModal(data) {
-    const info = data || _latestVersionInfo;
-    if (!info) return;
+async function showUpdateModal(data) {
+    let info = data || _latestVersionInfo;
+    if (!info) {
+        try {
+            const resp = await fetch("/api/version");
+            if (resp.ok) {
+                info = await resp.json();
+                _latestVersionInfo = info;
+            }
+        } catch (e) {
+            console.debug("Error fetching version info for modal:", e);
+        }
+    }
+    if (!info) {
+        info = {
+            current_version: "1.3.2",
+            latest_version: "1.3.2",
+            update_available: false,
+            release_notes: "Automated Beets deduplication, daily midnight scheduler, and Syncthing sync filters.",
+            release_url: "https://github.com/jb155/music-manager"
+        };
+    }
 
     const modal = document.getElementById("update-modal");
     const currentEl = document.getElementById("modal-current-ver");
