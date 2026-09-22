@@ -3087,7 +3087,10 @@ paths:
             for r in rows:
                 tid, track_num, title, artist, album, length, year, genre, raw_path = r
                 length_sec = int(length or 0)
-                dur_str = f"{length_sec // 60}:{length_sec % 60:02d}" if length_sec > 0 else ""
+                dur_str = f"{length_sec // 60}:{length_sec % 60:02d}" if length_sec > 0 else "0:00"
+                path_str = self.resolve_audio_path(raw_path)
+                file_exists = bool(path_str and os.path.exists(path_str))
+                size_bytes = os.path.getsize(path_str) if file_exists else 0
 
                 tracks.append({
                     "id": tid,
@@ -3097,8 +3100,12 @@ paths:
                     "album": album or "",
                     "duration": dur_str,
                     "length": length_sec,
-                    "year": year,
-                    "genre": genre,
+                    "length_str": dur_str,
+                    "year": year if year and year > 1900 else "",
+                    "genre": genre or "Unclassified",
+                    "path": path_str,
+                    "file_exists": file_exists,
+                    "size_bytes": size_bytes,
                     "preview_url": f"/api/audio/preview/{tid}"
                 })
 
@@ -3301,6 +3308,9 @@ paths:
             for r in rows:
                 path_str = self.resolve_audio_path(r[6])
                 length_sec = max(1, round(float(r[5] or 0)))
+                dur_str = f"{length_sec // 60}:{length_sec % 60:02d}"
+                file_exists = bool(path_str and os.path.exists(path_str))
+                size_bytes = os.path.getsize(path_str) if file_exists else 0
                 tracks.append({
                     "id": r[0],
                     "title": r[1] or "Unknown Title",
@@ -3308,10 +3318,12 @@ paths:
                     "album": r[3] or "-",
                     "genre": r[4] or "Unclassified",
                     "length": length_sec,
-                    "length_str": f"{length_sec // 60}:{length_sec % 60:02d}",
+                    "length_str": dur_str,
+                    "duration": dur_str,
                     "year": r[7] if len(r) > 7 and r[7] and r[7] > 1900 else "",
                     "path": path_str,
-                    "file_exists": os.path.exists(path_str)
+                    "file_exists": file_exists,
+                    "size_bytes": size_bytes
                 })
         except Exception as e:
             logger.error(f"Error searching library tracks: {e}")
@@ -4485,6 +4497,17 @@ paths:
             title = t.get("title", "Unknown Title")
             duration = int(t.get("length", 0))
             path = t.get("path", "")
+            if not path and t.get("id"):
+                try:
+                    db_t = self.get_track_by_id(int(t["id"]))
+                    if db_t and db_t.get("path"):
+                        path = db_t["path"]
+                except Exception:
+                    pass
+            if path and not os.path.exists(path):
+                resolved = self.resolve_audio_path(path)
+                if os.path.exists(resolved):
+                    path = resolved
             ext = os.path.splitext(path)[1] or ".mp3"
             lines.append(f"#EXTINF:{duration},{artist} - {title}")
             if relative_paths:
@@ -4502,6 +4525,17 @@ paths:
             title = t.get("title", "Unknown Title")
             duration = int(t.get("length", 0))
             path = t.get("path", "")
+            if not path and t.get("id"):
+                try:
+                    db_t = self.get_track_by_id(int(t["id"]))
+                    if db_t and db_t.get("path"):
+                        path = db_t["path"]
+                except Exception:
+                    pass
+            if path and not os.path.exists(path):
+                resolved = self.resolve_audio_path(path)
+                if os.path.exists(resolved):
+                    path = resolved
             ext = os.path.splitext(path)[1] or ".mp3"
             file_entry = f"{i:02d}. {artist} - {title}{ext}" if relative_paths else (path if path else f"{i:02d}. {artist} - {title}{ext}")
             lines.append(f"File{i}={file_entry}")
@@ -4537,7 +4571,17 @@ paths:
             # 2. Add each track with nice formatted filename
             for i, t in enumerate(tracks, 1):
                 src_path = t.get("path", "")
-                if os.path.exists(src_path):
+                if (not src_path or not os.path.exists(src_path)) and t.get("id"):
+                    try:
+                        db_track = self.get_track_by_id(int(t["id"]))
+                        if db_track and db_track.get("path") and os.path.exists(db_track["path"]):
+                            src_path = db_track["path"]
+                    except Exception:
+                        pass
+                if src_path and not os.path.exists(src_path):
+                    src_path = self.resolve_audio_path(src_path)
+
+                if src_path and os.path.exists(src_path):
                     ext = os.path.splitext(src_path)[1] or ".mp3"
                     artist = re.sub(r'[/\\:*?"<>|]', '_', t.get("artist", "Unknown"))
                     title = re.sub(r'[/\\:*?"<>|]', '_', t.get("title", "Track"))

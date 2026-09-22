@@ -1891,7 +1891,11 @@ function renderPlaylistPreview(tracks, title = null, summary = null) {
     }
 
     const totalSec = tracks.reduce((acc, t) => acc + (t.length || 0), 0);
-    const totalBytes = tracks.reduce((acc, t) => acc + (t.size_bytes || 0), 0);
+    const totalBytes = tracks.reduce((acc, t) => {
+        if (t.size_bytes && t.size_bytes > 0) return acc + t.size_bytes;
+        if (t.length && t.length > 0) return acc + (t.length * 24000);
+        return acc;
+    }, 0);
     const hrs = Math.floor(totalSec / 3600);
     const mins = Math.floor((totalSec % 3600) / 60);
     const secStr = totalSec % 60;
@@ -1913,11 +1917,14 @@ function renderPlaylistPreview(tracks, title = null, summary = null) {
             <td>${escapeHtml(t.artist)}</td>
             <td class="text-muted">${escapeHtml(t.album || "-")}</td>
             <td><span class="badge" style="font-size: 11px;">${escapeHtml(t.genre || "Rock")}</span></td>
-            <td style="font-family: var(--font-mono); font-size: 12px;">${escapeHtml(t.length_str || "0:00")}</td>
+            <td style="font-family: var(--font-mono); font-size: 12px;">${escapeHtml(t.length_str || t.duration || (t.length ? `${Math.floor(t.length / 60)}:${(t.length % 60).toString().padStart(2, "0")}` : "0:00"))}</td>
             <td class="text-right">
-                <button type="button" class="btn-remove-track" data-index="${i}" title="Remove track from playlist">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
+                <div style="display: inline-flex; gap: 6px; align-items: center; justify-content: flex-end;">
+                    ${t.id ? `<a href="/api/audio/download/${t.id}" download class="btn btn-secondary btn-sm btn-download-song" title="Download &quot;${escapeAttr(t.title)}&quot; directly"><i class="fa-solid fa-download"></i></a>` : ''}
+                    <button type="button" class="btn-remove-track" data-index="${i}" title="Remove track from playlist">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
             </td>
         </tr>
     `).join("");
@@ -3277,6 +3284,9 @@ function renderAlbumSongs(artIdx, albIdx) {
                     </div>
                     <div class="lib-song-right">
                         <span class="lib-song-duration">${escapeHtml(song.duration || '')}</span>
+                        <a href="/api/audio/download/${song.id}" download class="btn btn-secondary btn-sm btn-download-song" title="Download &quot;${escapeAttr(song.title)}&quot; directly" onclick="event.stopPropagation();">
+                            <i class="fa-solid fa-download"></i>
+                        </a>
                         <button type="button" class="btn btn-secondary btn-sm btn-add-song-pl"
                             data-art-idx="${artIdx}"
                             data-alb-idx="${albIdx}"
@@ -3397,11 +3407,16 @@ async function loadLibraryBrowser() {
                 <td class="text-muted">${escapeHtml(t.album || "-")}</td>
                 <td><span class="badge" style="font-size: 11px;">${escapeHtml(t.genre || "Music")}</span></td>
                 <td style="text-align: center; font-size: 12px; color: #94a3b8;">${t.year || "-"}</td>
-                <td style="text-align: center; font-family: var(--font-mono); font-size: 12px;">${t.length_str || "0:00"}</td>
+                <td style="text-align: center; font-family: var(--font-mono); font-size: 12px;">${escapeHtml(t.length_str || t.duration || "0:00")}</td>
                 <td class="text-right">
-                    <button type="button" class="btn btn-secondary btn-sm btn-add-to-pl" data-index="${idx}" title="Add to current playlist">
-                        <i class="fa-solid fa-plus"></i> Playlist
-                    </button>
+                    <div style="display: inline-flex; gap: 6px; align-items: center; justify-content: flex-end;">
+                        <a href="/api/audio/download/${t.id}" download class="btn btn-secondary btn-sm btn-download-song" title="Download &quot;${escapeAttr(t.title)}&quot; directly" onclick="event.stopPropagation();">
+                            <i class="fa-solid fa-download"></i>
+                        </a>
+                        <button type="button" class="btn btn-secondary btn-sm btn-add-to-pl" data-index="${idx}" title="Add to current playlist">
+                            <i class="fa-solid fa-plus"></i> Playlist
+                        </button>
+                    </div>
                 </td>
             </tr>
         `).join("");
@@ -3448,6 +3463,12 @@ async function addAlbumToCurrentPlaylist(albumId, albumName) {
         if (typeof currentPlaylistTracks === "undefined" || !currentPlaylistTracks) {
             currentPlaylistTracks = [];
         }
+        tracks.forEach(t => {
+            if (!t.length_str && t.duration) t.length_str = t.duration;
+            if (!t.length_str && t.length) {
+                t.length_str = `${Math.floor(t.length / 60)}:${(t.length % 60).toString().padStart(2, "0")}`;
+            }
+        });
         currentPlaylistTracks.push(...tracks);
         renderPlaylistPreview(currentPlaylistTracks);
         showToast(`Added ${tracks.length} tracks from "${albumName}" to playlist!`, "success");
@@ -3468,6 +3489,12 @@ async function addArtistToCurrentPlaylist(artistName) {
         if (typeof currentPlaylistTracks === "undefined" || !currentPlaylistTracks) {
             currentPlaylistTracks = [];
         }
+        tracks.forEach(t => {
+            if (!t.length_str && t.duration) t.length_str = t.duration;
+            if (!t.length_str && t.length) {
+                t.length_str = `${Math.floor(t.length / 60)}:${(t.length % 60).toString().padStart(2, "0")}`;
+            }
+        });
         currentPlaylistTracks.push(...tracks);
         renderPlaylistPreview(currentPlaylistTracks);
         showToast(`Added ${tracks.length} tracks by "${artistName}" to playlist!`, "success");
@@ -3479,6 +3506,12 @@ async function addArtistToCurrentPlaylist(artistName) {
 function addTrackToCurrentPlaylist(track) {
     if (typeof currentPlaylistTracks === "undefined" || !currentPlaylistTracks) {
         currentPlaylistTracks = [];
+    }
+    if (!track.length_str && track.duration) {
+        track.length_str = track.duration;
+    }
+    if (!track.length_str && track.length) {
+        track.length_str = `${Math.floor(track.length / 60)}:${(track.length % 60).toString().padStart(2, "0")}`;
     }
     currentPlaylistTracks.push(track);
     renderPlaylistPreview(currentPlaylistTracks);

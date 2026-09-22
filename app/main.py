@@ -37,7 +37,7 @@ except Exception:
     pass
 
 
-APP_VERSION = "1.3.5"
+APP_VERSION = "1.3.6"
 
 app = FastAPI(title="Music Manager Web", version=APP_VERSION)
 
@@ -628,6 +628,33 @@ async def get_audio_stream(track_id: int, request: Request):
     if not track or not track.get("path") or not os.path.exists(track["path"]):
         raise HTTPException(status_code=404, detail=f"Audio file not found in library vault for track {track_id}")
     return stream_file_with_range(track["path"], request)
+
+@app.get("/api/audio/download/{track_id}")
+async def download_audio_track(track_id: int):
+    """Directly download a single audio file from library vault."""
+    track = service.get_track_by_id(track_id)
+    if not track or not track.get("path") or not os.path.exists(track["path"]):
+        raise HTTPException(status_code=404, detail=f"Audio file not found in library vault for track {track_id}")
+    file_path = track["path"]
+    ext = os.path.splitext(file_path)[1] or ".mp3"
+    clean_artist = re.sub(r'[/\\:*?"<>|]', '_', track.get("artist", "Unknown")).strip() or "Artist"
+    clean_title = re.sub(r'[/\\:*?"<>|]', '_', track.get("title", "Track")).strip() or "Track"
+    filename = f"{clean_artist} - {clean_title}{ext}"
+    media_types = {
+        ".mp3": "audio/mpeg",
+        ".m4a": "audio/mp4",
+        ".flac": "audio/flac",
+        ".ogg": "audio/ogg",
+        ".opus": "audio/opus",
+        ".wav": "audio/wav"
+    }
+    content_type = media_types.get(ext.lower(), "application/octet-stream")
+    return FileResponse(
+        file_path,
+        media_type=content_type,
+        filename=filename,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 @app.get("/api/audio/preview-staging")
 async def get_staging_audio_preview(file: str, request: Request):

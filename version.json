@@ -1,5 +1,5 @@
 {
-  "version": "1.3.5",
-  "release_date": "2026-09-21",
-  "notes": "Unified and hardened package patching (patch_packages.py) for spotapi, SpotipyFree, and spotdl, ensuring flawless non-root container startup across all nodes."
+  "version": "1.3.6",
+  "release_date": "2026-09-22",
+  "notes": "Fixed library album track duration and path resolution for playlist exports; added direct per-song download buttons in library view."
 }
