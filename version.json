@@ -1,5 +1,5 @@
 {
-  "version": "1.3.6",
+  "version": "1.3.7",
   "release_date": "2026-09-22",
-  "notes": "Fixed library album track duration and path resolution for playlist exports; added direct per-song download buttons in library view."
+  "notes": "Enabled album-specific missing track downloads to prevent songs already present on live albums/singles from being incorrectly skipped; resolved album split false positives with album title normalization."
 }

@@ -505,8 +505,11 @@ paths:
             logger.error(f"Error getting library stats for {artist_name}: {e}")
             return {"total_tracks": 0, "complete_albums": 0, "albums_map": {}}
 
-    def is_song_in_library(self, artist: str, title: str) -> bool:
-        """Check if a specific song title by an artist already exists in the Beets library."""
+    def is_song_in_library(self, artist: str, title: str, album: Optional[str] = None) -> bool:
+        """Check if a specific song title by an artist already exists in the Beets library.
+        If album is provided, checks if the song exists specifically within that album (or equivalent normalized album).
+        If album is None, checks across the entire library.
+        """
         db_path = os.path.join(self.beets_dir, "library.db")
         if not os.path.exists(db_path) or not artist or not title:
             return False
@@ -515,20 +518,36 @@ paths:
         if not norm_title:
             return False
 
+        norm_album = normalize_album_name(album) if album else None
+
         try:
             conn = sqlite3.connect(db_path)
             c = conn.cursor()
-            c.execute("""
-                SELECT items.title
-                FROM items
-                WHERE LOWER(items.artist) = LOWER(?) OR LOWER(items.albumartist) = LOWER(?)
-            """, (artist.strip(), artist.strip()))
-            rows = c.fetchall()
-            conn.close()
+            if norm_album:
+                c.execute("""
+                    SELECT items.title, items.album
+                    FROM items
+                    WHERE LOWER(items.artist) = LOWER(?) OR LOWER(items.albumartist) = LOWER(?)
+                """, (artist.strip(), artist.strip()))
+                rows = c.fetchall()
+                conn.close()
 
-            for (t,) in rows:
-                if normalize_music_title(t) == norm_title:
-                    return True
+                for (t, a) in rows:
+                    if normalize_music_title(t) == norm_title and normalize_album_name(a or "") == norm_album:
+                        return True
+                return False
+            else:
+                c.execute("""
+                    SELECT items.title
+                    FROM items
+                    WHERE LOWER(items.artist) = LOWER(?) OR LOWER(items.albumartist) = LOWER(?)
+                """, (artist.strip(), artist.strip()))
+                rows = c.fetchall()
+                conn.close()
+
+                for (t,) in rows:
+                    if normalize_music_title(t) == norm_title:
+                        return True
         except Exception as e:
             logger.error(f"Error checking if song is in library '{artist} - {title}': {e}")
         return False
@@ -660,7 +679,7 @@ paths:
                 await self.broadcast_log(f"[FAIL] yt-dlp search also failed for: {clean_target}\n")
             return False
 
-    async def _download_query(self, query: str, max_retries: int = 2) -> bool:
+    async def _download_query(self, query: str, max_retries: int = 2, check_library_duplicate: bool = True, target_album: Optional[str] = None) -> bool:
         """Download query using spotdl with audio provider fallbacks, progressive query simplification, then yt-dlp fallback."""
         if self._abort_requested:
             return False
@@ -668,11 +687,12 @@ paths:
         is_url = query.strip().startswith("http://") or query.strip().startswith("https://")
 
         # Smart skip if song is already in library (Artist - Title)
-        if not is_url and " - " in query:
+        if check_library_duplicate and not is_url and " - " in query:
             parts = query.split(" - ", 1)
             art, tit = parts[0].strip(), parts[1].strip()
-            if self.is_song_in_library(art, tit):
-                await self.broadcast_log(f"[SKIP] '{art} - {tit}' is already in your library. Skipping download.\n")
+            if self.is_song_in_library(art, tit, album=target_album):
+                target_str = f" in '{target_album}'" if target_album else ""
+                await self.broadcast_log(f"[SKIP] '{art} - {tit}' is already in your library{target_str}. Skipping download.\n")
                 return True
 
         current_query = query if is_url else clean_search_query(query)
@@ -814,10 +834,10 @@ paths:
                 try:
                     album_info = metadata_plugins.album_for_id(album.mb_albumid, "musicbrainz")
                     if album_info:
-                        existing_titles = {i.title.lower().strip() for i in album.items()}
+                        existing_titles = {normalize_music_title(i.title) for i in album.items() if i.title}
                         missing = []
                         for track in album_info.tracks:
-                            if track.title.lower().strip() not in existing_titles:
+                            if normalize_music_title(track.title) not in existing_titles:
                                 missing.append(f"{album.albumartist} - {track.title}")
 
                         if missing:
@@ -833,7 +853,7 @@ paths:
         unique_missing = list(dict.fromkeys(all_missing_tracks))
         await self.broadcast_log(f"\n[ALBUM AUTO-COMPLETE] Starting automated download of {len(unique_missing)} missing album track(s)...\n")
 
-        res = await self.download_batch_tracks(unique_missing, label="Missing Album Tracks", auto_import=True, auto_complete_album=False)
+        res = await self.download_batch_tracks(unique_missing, label="Missing Album Tracks", auto_import=True, auto_complete_album=False, check_library_duplicate=False)
         return res
 
     def get_cached_missing_tracks(self) -> List[Dict[str, Any]]:
@@ -904,11 +924,21 @@ paths:
                 try:
                     album_info = metadata_plugins.album_for_id(mb_albumid, "musicbrainz")
                     if album_info:
-                        c.execute("SELECT title FROM items WHERE album_id = ?", (album_id,))
-                        existing_titles = {r[0].lower().strip() for r in c.fetchall()}
+                        norm_alb = normalize_album_name(album)
+                        c.execute("""
+                            SELECT i.title, a.album
+                            FROM items i
+                            JOIN albums a ON a.id = i.album_id
+                            WHERE (LOWER(a.albumartist) = LOWER(?) OR LOWER(i.artist) = LOWER(?))
+                        """, (albumartist, albumartist))
+                        existing_titles = {
+                            normalize_music_title(r[0])
+                            for r in c.fetchall()
+                            if r[0] and normalize_album_name(r[1] or "") == norm_alb
+                        }
                         found_for_album = 0
                         for track in album_info.tracks:
-                            if track.title.lower().strip() not in existing_titles:
+                            if normalize_music_title(track.title) not in existing_titles:
                                 query = f"{albumartist} - {track.title}"
                                 if query not in seen_queries:
                                     seen_queries.add(query)
@@ -938,7 +968,7 @@ paths:
         await self.broadcast_log(f"[MISSING SCAN] Complete! Cataloged {len(tracks)} missing tracks across {total_to_check} albums.\n")
         return tracks
 
-    async def download_batch_tracks(self, tracks: List[str], label: str = "Recommendations", auto_import: bool = True, auto_complete_album: bool = False) -> Dict[str, Any]:
+    async def download_batch_tracks(self, tracks: List[str], label: str = "Recommendations", auto_import: bool = True, auto_complete_album: bool = False, check_library_duplicate: bool = True) -> Dict[str, Any]:
         """Download a batch of track queries sequentially with progress tracking, abort handling, and auto-import."""
         self._abort_requested = False
         start_time = time.time()
@@ -972,7 +1002,7 @@ paths:
                 self.task_progress["message"] = f"Downloading ({i}/{total}): {track}"
                 await self.broadcast_log(f"\n[{i}/{total}] Downloading: {track}\n")
 
-                track_success = await self._download_query(track, max_retries=2)
+                track_success = await self._download_query(track, max_retries=2, check_library_duplicate=check_library_duplicate)
                 if self._abort_requested:
                     await self.broadcast_log(f"\n[ABORT] Stopped batch download after item {i}/{total}.\n")
                     break
@@ -1012,16 +1042,23 @@ paths:
     async def download_missing_tracks(self, tracks: Optional[List[str]] = None, auto_import: bool = False) -> Dict[str, Any]:
         """Download missing tracks sequentially with error resilience, abort handling, and cache pruning."""
         self._abort_requested = False
+        cached_items = self.get_cached_missing_tracks()
         if tracks is None:
-            missing_items = self.get_cached_missing_tracks()
-            if not missing_items:
-                missing_items = await self.get_missing_tracks()
-            tracks = [item["query"] for item in missing_items]
+            if not cached_items:
+                cached_items = await self.get_missing_tracks()
+            tracks = [item["query"] for item in cached_items]
 
         total = len(tracks)
         if total == 0:
             await self.broadcast_log("[INFO] No missing tracks to download.\n")
             return {"success": True, "downloaded": 0, "failed": 0, "total": 0}
+
+        # Build lookup from query to target album
+        query_to_album = {}
+        if cached_items:
+            for item in cached_items:
+                if isinstance(item, dict) and item.get("query") and item.get("album"):
+                    query_to_album[item["query"]] = item["album"]
 
         self.task_progress = {
             "status": "running",
@@ -1049,7 +1086,13 @@ paths:
                 self.task_progress["message"] = f"Downloading ({i}/{total}): {track}"
                 await self.broadcast_log(f"\n[{i}/{total}] Downloading: {track}\n")
 
-                track_success = await self._download_query(track, max_retries=2)
+                target_album = query_to_album.get(track)
+                track_success = await self._download_query(
+                    track,
+                    max_retries=2,
+                    check_library_duplicate=(target_album is not None),
+                    target_album=target_album
+                )
                 if self._abort_requested:
                     await self.broadcast_log(f"\n[ABORT] Stopped missing tracks download after item {i}/{total}.\n")
                     break
@@ -4838,9 +4881,10 @@ paths:
             if fetched_tracks:
                 await self.broadcast_log(f"   * Album '{album_name}': {len(fetched_tracks)} tracks selected/found.\n")
                 for t in fetched_tracks:
-                    # Check if already in library
-                    if self.is_song_in_library(artist, t):
-                        await self.broadcast_log(f"   [SKIP] '{artist} - {t}' is already in your library.\n")
+                    # Check if already in library for this album
+                    if self.is_song_in_library(artist, t, album=album_name):
+                        target_str = f" in '{album_name}'" if album_name else ""
+                        await self.broadcast_log(f"   [SKIP] '{artist} - {t}' is already in your library{target_str}.\n")
                         skipped_count += 1
                         continue
 
@@ -4869,6 +4913,7 @@ paths:
             tracks=queries,
             label=f"Albums for {artist}",
             auto_import=auto_import,
-            auto_complete_album=auto_complete_album
+            auto_complete_album=auto_complete_album,
+            check_library_duplicate=False
         )
 
