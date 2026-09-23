@@ -37,7 +37,7 @@ except Exception:
     pass
 
 
-APP_VERSION = "1.3.8"
+APP_VERSION = "1.4.0"
 
 app = FastAPI(title="Music Manager Web", version=APP_VERSION)
 
@@ -177,6 +177,17 @@ class PlaylistSuggestTitleRequest(BaseModel):
 class PlaylistExportRequest(BaseModel):
     playlist_name: Optional[str] = "My Playlist"
     tracks: List[Dict[str, Any]]
+
+class DeleteImpactRequest(BaseModel):
+    target_type: str  # "artist", "album", "song"
+    target_id: Optional[Any] = None
+    artist_name: Optional[str] = None
+    album_id: Optional[Union[int, str]] = None
+    song_id: Optional[int] = None
+
+class DeleteItemsRequest(BaseModel):
+    track_ids: List[int]
+    delete_files: bool = True
 
 # Existing API Routes
 _version_cache = {"last_check": 0, "data": None}
@@ -783,6 +794,30 @@ async def get_library_tracks(
         page=page,
         limit=limit
     )
+
+@app.post("/api/library/delete-impact")
+async def get_library_delete_impact(req: DeleteImpactRequest):
+    """Calculate the deletion impact (tracks, albums, bytes) before permanent deletion."""
+    impact = service.get_deletion_impact(
+        target_type=req.target_type,
+        target_id=req.target_id,
+        artist_name=req.artist_name,
+        album_id=req.album_id,
+        song_id=req.song_id
+    )
+    if not impact.get("success"):
+        raise HTTPException(status_code=400, detail=impact.get("error", "Error calculating deletion impact"))
+    return impact
+
+@app.post("/api/library/delete")
+async def delete_library_items_endpoint(req: DeleteItemsRequest):
+    """Permanently delete confirmed tracks and clean up parent album/artist folders & DB rows."""
+    if service.task_progress.get("status") == "running":
+        raise HTTPException(status_code=409, detail="A library task is currently running. Please wait for it to complete.")
+    result = await service.delete_library_items(track_ids=req.track_ids, delete_files=req.delete_files)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Error deleting items"))
+    return result
 
 
 # -------------------------------------------------------------

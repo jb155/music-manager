@@ -949,14 +949,80 @@
         </div>
     </div>
 
+    <!-- Library Deletion Impact & Confirmation Modal -->
+    <div id="delete-impact-modal" class="modal-overlay hidden">
+        <div class="modal-box delete-modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-triangle-exclamation" style="color: #ef4444;"></i> Delete from Music Vault</h3>
+                <button type="button" class="btn-close-modal" id="btn-close-delete-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="delete-impact-banner">
+                    <i class="fa-solid fa-skull-crossbones banner-icon"></i>
+                    <div class="banner-text">
+                        <h4 id="delete-modal-target-title">Artist: Tool</h4>
+                        <p id="delete-modal-target-desc">Review the items and disk space affected before confirming permanent removal.</p>
+                    </div>
+                </div>
+
+                <div class="delete-stats-grid">
+                    <div class="delete-stat-box">
+                        <div class="stat-val" id="delete-stat-albums">0</div>
+                        <div class="stat-label">Albums</div>
+                    </div>
+                    <div class="delete-stat-box">
+                        <div class="stat-val" id="delete-stat-tracks">0</div>
+                        <div class="stat-label">Songs</div>
+                    </div>
+                    <div class="delete-stat-box">
+                        <div class="stat-val" id="delete-stat-size" style="color: #f87171;">0 MB</div>
+                        <div class="stat-label">Disk Space</div>
+                    </div>
+                    <div class="delete-stat-box">
+                        <div class="stat-val" id="delete-stat-kept" style="color: #34d399;">0</div>
+                        <div class="stat-label">Kept</div>
+                    </div>
+                </div>
+
+                <div class="delete-exclusion-section">
+                    <div class="delete-exclusion-header">
+                        <h5><i class="fa-solid fa-list-check"></i> Items Marked for Deletion:</h5>
+                        <span>Click <strong>Keep</strong> to spare any album or song</span>
+                    </div>
+                    <div class="delete-exclusion-wrap" id="delete-exclusion-list">
+                        <!-- Populated dynamically with album & track rows -->
+                    </div>
+                </div>
+
+                <!-- Right-to-Left Slide Lockout -->
+                <div class="slide-lockout-wrapper">
+                    <div class="slide-lockout-track" id="slide-lockout-track">
+                        <div class="slide-lockout-text" id="slide-lockout-text">
+                            <i class="fa-solid fa-angles-left"></i> Slide left to unlock deletion
+                        </div>
+                        <div class="slide-lockout-thumb" id="slide-lockout-thumb" title="Drag left to unlock">
+                            <i class="fa-solid fa-lock" id="slide-lockout-icon"></i>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-confirm-delete-unlocked mt-2" id="btn-confirm-delete-unlocked">
+                        <i class="fa-solid fa-trash-can"></i> Permanently Delete Selected Items
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-cancel-delete">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Subtle Version Watermark (Bottom-Left) -->
     <div class="version-watermark" id="app-version-watermark" title="Music Manager (Click to view version and update details)">
-        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.3.8
+        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.4.0
     </div>
 
     <!-- Notification Toast -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/app.js?v=1.3.8"></script>
+    <script src="/static/app.js?v=1.4.0"></script>
 </body>
 </html>

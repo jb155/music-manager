@@ -17,6 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initLibraryBrowser();
     startStatusPoller();
     initUpdateBadge();
+    initSlideLockout();
     checkAppVersion();
 });
 
@@ -3051,6 +3052,9 @@ async function loadLibraryHierarchy() {
                         </div>
                     </div>
                     <div class="lib-artist-right">
+                        <button type="button" class="btn btn-secondary btn-sm btn-delete-artist" data-artist="${escapeAttr(art.name)}" title="Delete &quot;${escapeAttr(art.name)}&quot; &amp; all albums from Vault">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
                         <button type="button" class="btn btn-secondary btn-sm btn-add-artist-pl" data-artist="${escapeAttr(art.name)}" title="Add all songs by ${escapeAttr(art.name)} to playlist">
                             <i class="fa-solid fa-plus"></i> Playlist
                         </button>
@@ -3074,7 +3078,7 @@ async function loadLibraryHierarchy() {
         // Bind Artist Row Clicks to toggle albums
         listEl.querySelectorAll(".lib-artist-row").forEach((row, idx) => {
             row.addEventListener("click", (e) => {
-                if (e.target.closest(".btn-add-artist-pl") || e.target.closest(".btn-toggle-artist-albums")) return;
+                if (e.target.closest(".btn-add-artist-pl") || e.target.closest(".btn-toggle-artist-albums") || e.target.closest(".btn-delete-artist")) return;
                 toggleArtistAlbums(idx);
             });
         });
@@ -3094,6 +3098,15 @@ async function loadLibraryHierarchy() {
                 e.stopPropagation();
                 const artName = btn.dataset.artist;
                 addArtistToCurrentPlaylist(artName);
+            });
+        });
+
+        // Bind Delete Artist button
+        listEl.querySelectorAll(".btn-delete-artist").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const artName = btn.dataset.artist;
+                openDeleteModal("artist", artName, { artist: artName });
             });
         });
 
@@ -3175,6 +3188,9 @@ function renderArtistAlbums(artIdx) {
                             </div>
                         </div>
                         <div class="lib-album-right">
+                            <button type="button" class="btn btn-secondary btn-sm btn-delete-album" data-album-id="${alb.id}" data-album-name="${escapeAttr(alb.name)}" title="Delete album &amp; songs from Vault">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
                             <button type="button" class="btn btn-secondary btn-sm btn-add-album-pl" data-album-id="${alb.id}" data-album-name="${escapeAttr(alb.name)}" title="Add all tracks from this album to playlist">
                                 <i class="fa-solid fa-plus"></i> Playlist
                             </button>
@@ -3200,7 +3216,7 @@ function renderArtistAlbums(artIdx) {
     // Bind Album Row Clicks to toggle songs
     content.querySelectorAll(".lib-album-row").forEach(row => {
         row.addEventListener("click", (e) => {
-            if (e.target.closest(".btn-add-album-pl") || e.target.closest(".btn-toggle-album-songs")) return;
+            if (e.target.closest(".btn-add-album-pl") || e.target.closest(".btn-toggle-album-songs") || e.target.closest(".btn-delete-album")) return;
             const aIdx = parseInt(row.dataset.artIdx);
             const alIdx = parseInt(row.dataset.albIdx);
             toggleAlbumSongs(aIdx, alIdx);
@@ -3224,6 +3240,16 @@ function renderArtistAlbums(artIdx) {
             const albId = parseInt(btn.dataset.albumId);
             const albName = btn.dataset.albumName;
             addAlbumToCurrentPlaylist(albId, albName);
+        });
+    });
+
+    // Bind Delete Album button
+    content.querySelectorAll(".btn-delete-album").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const albId = parseInt(btn.dataset.albumId);
+            const albName = btn.dataset.albumName;
+            openDeleteModal("album", albId, { albumName: albName });
         });
     });
 }
@@ -3306,6 +3332,13 @@ function renderAlbumSongs(artIdx, albIdx) {
                             title="Add to playlist">
                             <i class="fa-solid fa-plus"></i> Playlist
                         </button>
+                        <button type="button" class="btn btn-secondary btn-sm btn-delete-song"
+                            data-art-idx="${artIdx}"
+                            data-alb-idx="${albIdx}"
+                            data-song-idx="${sIdx}"
+                            title="Delete song from Vault">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
                     </div>
                 </div>
             `).join("")}
@@ -3339,6 +3372,22 @@ function renderAlbumSongs(artIdx, albIdx) {
             const song = alb.tracks[sIdx];
             if (song) {
                 addTrackToCurrentPlaylist(song);
+            }
+        });
+    });
+
+    // Bind Delete Song button
+    content.querySelectorAll(".btn-delete-song").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const sIdx = parseInt(btn.dataset.songIdx);
+            const song = alb.tracks[sIdx];
+            if (song) {
+                openDeleteModal("song", song.id, {
+                    songTitle: song.title,
+                    artist: song.artist || art.name,
+                    album: alb.name
+                });
             }
         });
     });
@@ -3428,6 +3477,9 @@ async function loadLibraryBrowser() {
                         <button type="button" class="btn btn-secondary btn-sm btn-add-to-pl" data-index="${idx}" title="Add to current playlist">
                             <i class="fa-solid fa-plus"></i> Playlist
                         </button>
+                        <button type="button" class="btn btn-secondary btn-sm btn-delete-track" data-index="${idx}" title="Delete song from Vault">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
                     </div>
                 </td>
             </tr>
@@ -3451,6 +3503,21 @@ async function loadLibraryBrowser() {
                 const track = tracks[idx];
                 if (track) {
                     addTrackToCurrentPlaylist(track);
+                }
+            });
+        });
+
+        // Wire up delete track buttons
+        tbody.querySelectorAll(".btn-delete-track").forEach(btn => {
+            btn.addEventListener("click", () => {
+                const idx = parseInt(btn.dataset.index);
+                const track = tracks[idx];
+                if (track) {
+                    openDeleteModal("song", track.id, {
+                        songTitle: track.title,
+                        artist: track.artist,
+                        album: track.album
+                    });
                 }
             });
         });
@@ -4112,4 +4179,413 @@ function renderAlbumChecklist(artist, albums, query, autoImport, autoComplete, h
             btnDl.disabled = false;
         }
     });
+}
+
+// ============================================================================
+// LIBRARY DELETION IMPACT & RIGHT-TO-LEFT SLIDE LOCKOUT
+// ============================================================================
+let currentDeleteImpact = null;
+let excludedTrackIds = new Set();
+let isSlideUnlocked = false;
+
+function resetSlideLockout() {
+    isSlideUnlocked = false;
+    const track = document.getElementById("slide-lockout-track");
+    const thumb = document.getElementById("slide-lockout-thumb");
+    const text = document.getElementById("slide-lockout-text");
+    const icon = document.getElementById("slide-lockout-icon");
+    const btnConfirm = document.getElementById("btn-confirm-delete-unlocked");
+
+    if (track) {
+        track.classList.remove("unlocked");
+        track.style.opacity = "1";
+        track.style.pointerEvents = "auto";
+    }
+    if (thumb) {
+        thumb.style.transition = "";
+        thumb.style.right = "4px";
+    }
+    if (text) {
+        text.innerHTML = `<i class="fa-solid fa-angles-left"></i> Slide left to unlock deletion`;
+    }
+    if (icon) {
+        icon.className = "fa-solid fa-lock";
+    }
+    if (btnConfirm) {
+        btnConfirm.classList.remove("revealed");
+        btnConfirm.disabled = false;
+        btnConfirm.innerHTML = `<i class="fa-solid fa-trash-can"></i> Permanently Delete Selected Items`;
+    }
+}
+
+function renderDeleteImpactUI() {
+    if (!currentDeleteImpact || !currentDeleteImpact.success) return;
+
+    const imp = currentDeleteImpact;
+    const titleEl = document.getElementById("delete-modal-target-title");
+    const descEl = document.getElementById("delete-modal-target-desc");
+    const albumsStatEl = document.getElementById("delete-stat-albums");
+    const tracksStatEl = document.getElementById("delete-stat-tracks");
+    const sizeStatEl = document.getElementById("delete-stat-size");
+    const keptStatEl = document.getElementById("delete-stat-kept");
+    const listEl = document.getElementById("delete-exclusion-list");
+    const trackLock = document.getElementById("slide-lockout-track");
+    const textLock = document.getElementById("slide-lockout-text");
+    const confirmBtn = document.getElementById("btn-confirm-delete-unlocked");
+
+    if (titleEl) {
+        const typeLabel = imp.target_type.charAt(0).toUpperCase() + imp.target_type.slice(1);
+        titleEl.textContent = `${typeLabel}: ${imp.target_name}`;
+    }
+    if (descEl) {
+        descEl.textContent = `Review all items, folders, and disk space that will be permanently removed.`;
+    }
+
+    // Calculate active items vs kept items
+    let activeTracksCount = 0;
+    let activeBytes = 0;
+    const activeAlbums = new Set();
+    const keptCount = excludedTrackIds.size;
+
+    (imp.albums || []).forEach(alb => {
+        (alb.tracks || []).forEach(t => {
+            if (!excludedTrackIds.has(t.id)) {
+                activeTracksCount++;
+                activeBytes += (t.size_bytes || 0);
+                activeAlbums.add(alb.album_id);
+            }
+        });
+    });
+
+    let activeSizeStr = "0 B";
+    if (activeBytes >= 1024 * 1024 * 1024) {
+        activeSizeStr = `${(activeBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    } else if (activeBytes >= 1024 * 1024) {
+        activeSizeStr = `${(activeBytes / (1024 * 1024)).toFixed(1)} MB`;
+    } else if (activeBytes > 0) {
+        activeSizeStr = `${(activeBytes / 1024).toFixed(1)} KB`;
+    }
+
+    if (albumsStatEl) albumsStatEl.textContent = activeAlbums.size;
+    if (tracksStatEl) tracksStatEl.textContent = activeTracksCount;
+    if (sizeStatEl) sizeStatEl.textContent = activeSizeStr;
+    if (keptStatEl) keptStatEl.textContent = keptCount;
+
+    // Render tree
+    if (listEl) {
+        let html = "";
+        (imp.albums || []).forEach((alb, aIdx) => {
+            const allAlbTrackIds = (alb.tracks || []).map(t => t.id);
+            const albAllExcluded = allAlbTrackIds.length > 0 && allAlbTrackIds.every(id => excludedTrackIds.has(id));
+
+            html += `
+                <div class="delete-album-block mb-2">
+                    <div class="delete-exclusion-item ${albAllExcluded ? 'is-kept' : ''}" style="background: rgba(255, 255, 255, 0.05); font-weight: 600; margin-bottom: 4px; border-radius: 6px;">
+                        <div class="delete-item-info">
+                            <i class="fa-solid fa-compact-disc" style="color: #60a5fa;"></i>
+                            <span class="item-title" title="${escapeAttr(alb.album_name)}">${escapeHtml(alb.album_name)}</span>
+                            <span class="item-sub">(${alb.tracks.length} tracks &bull; ${escapeHtml(alb.size_str)})</span>
+                        </div>
+                        <button type="button" class="btn-toggle-keep btn-toggle-keep-album" data-album-idx="${aIdx}">
+                            <i class="fa-solid ${albAllExcluded ? 'fa-rotate-left' : 'fa-shield-halved'}"></i>
+                            ${albAllExcluded ? 'Include Album' : 'Keep Album'}
+                        </button>
+                    </div>
+                    <div class="delete-tracks-sublist" style="padding-left: 10px;">
+                        ${(alb.tracks || []).map(t => {
+                            const isKept = excludedTrackIds.has(t.id);
+                            return `
+                                <div class="delete-exclusion-item ${isKept ? 'is-kept' : ''}" data-track-id="${t.id}">
+                                    <div class="delete-item-info">
+                                        <i class="fa-solid fa-music text-muted" style="font-size: 11px;"></i>
+                                        <span class="item-title" title="${escapeAttr(t.title)}">${escapeHtml(t.title)}</span>
+                                        <span class="item-sub">${escapeHtml(t.format || 'MP3')} &bull; ${escapeHtml(t.duration || '')} &bull; ${escapeHtml(t.size_str || '')}</span>
+                                    </div>
+                                    <button type="button" class="btn-toggle-keep btn-toggle-keep-track" data-track-id="${t.id}">
+                                        <i class="fa-solid ${isKept ? 'fa-rotate-left' : 'fa-shield-halved'}"></i>
+                                        ${isKept ? 'Include' : 'Keep'}
+                                    </button>
+                                </div>
+                            `;
+                        }).join("")}
+                    </div>
+                </div>
+            `;
+        });
+
+        listEl.innerHTML = html;
+
+        // Bind Keep Album buttons
+        listEl.querySelectorAll(".btn-toggle-keep-album").forEach(btn => {
+            btn.addEventListener("click", () => {
+                const aIdx = parseInt(btn.dataset.albumIdx);
+                const alb = imp.albums[aIdx];
+                if (!alb) return;
+                const allAlbTrackIds = (alb.tracks || []).map(t => t.id);
+                const albAllExcluded = allAlbTrackIds.every(id => excludedTrackIds.has(id));
+                if (albAllExcluded) {
+                    allAlbTrackIds.forEach(id => excludedTrackIds.delete(id));
+                } else {
+                    allAlbTrackIds.forEach(id => excludedTrackIds.add(id));
+                }
+                renderDeleteImpactUI();
+                resetSlideLockout();
+            });
+        });
+
+        // Bind Keep Track buttons
+        listEl.querySelectorAll(".btn-toggle-keep-track").forEach(btn => {
+            btn.addEventListener("click", () => {
+                const tId = parseInt(btn.dataset.trackId);
+                if (excludedTrackIds.has(tId)) {
+                    excludedTrackIds.delete(tId);
+                } else {
+                    excludedTrackIds.add(tId);
+                }
+                renderDeleteImpactUI();
+                resetSlideLockout();
+            });
+        });
+    }
+
+    // If all tracks are spared/kept, disable deletion lockout
+    if (activeTracksCount === 0) {
+        if (trackLock) {
+            trackLock.style.opacity = "0.4";
+            trackLock.style.pointerEvents = "none";
+        }
+        if (textLock) {
+            textLock.innerHTML = `<i class="fa-solid fa-circle-check"></i> All items kept — nothing to delete`;
+        }
+        if (confirmBtn) {
+            confirmBtn.classList.remove("revealed");
+        }
+    } else {
+        if (trackLock && !isSlideUnlocked) {
+            trackLock.style.opacity = "1";
+            trackLock.style.pointerEvents = "auto";
+        }
+        if (textLock && !isSlideUnlocked) {
+            textLock.innerHTML = `<i class="fa-solid fa-angles-left"></i> Slide left to unlock deletion`;
+        }
+    }
+}
+
+async function openDeleteModal(targetType, targetId, extra = {}) {
+    const modal = document.getElementById("delete-impact-modal");
+    if (!modal) return;
+
+    resetSlideLockout();
+    excludedTrackIds.clear();
+    currentDeleteImpact = null;
+
+    const titleEl = document.getElementById("delete-modal-target-title");
+    const descEl = document.getElementById("delete-modal-target-desc");
+    const albumsStatEl = document.getElementById("delete-stat-albums");
+    const tracksStatEl = document.getElementById("delete-stat-tracks");
+    const sizeStatEl = document.getElementById("delete-stat-size");
+    const keptStatEl = document.getElementById("delete-stat-kept");
+    const listEl = document.getElementById("delete-exclusion-list");
+
+    if (titleEl) titleEl.textContent = `Analyzing deletion impact...`;
+    if (descEl) descEl.textContent = `Calculating affected songs, albums, and disk footprint...`;
+    if (albumsStatEl) albumsStatEl.textContent = "-";
+    if (tracksStatEl) tracksStatEl.textContent = "-";
+    if (sizeStatEl) sizeStatEl.textContent = "-";
+    if (keptStatEl) keptStatEl.textContent = "0";
+
+    if (listEl) {
+        listEl.innerHTML = `<div class="p-4 text-center text-muted"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Analyzing impact on Music Vault...</div>`;
+    }
+
+    modal.classList.remove("hidden");
+
+    try {
+        const payload = {
+            target_type: targetType,
+            target_id: targetId
+        };
+        if (targetType === "artist") {
+            payload.artist_name = extra.artist || targetId;
+        } else if (targetType === "album") {
+            payload.album_id = targetId;
+        } else if (targetType === "song") {
+            payload.song_id = targetId;
+        }
+
+        const res = await fetch("/api/library/delete-impact", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            showToast(data.error || "Failed to analyze deletion impact", "error");
+            modal.classList.add("hidden");
+            return;
+        }
+
+        currentDeleteImpact = data;
+        renderDeleteImpactUI();
+
+    } catch (e) {
+        showToast("Error communicating with server: " + e.message, "error");
+        modal.classList.add("hidden");
+    }
+}
+
+function initSlideLockout() {
+    const track = document.getElementById("slide-lockout-track");
+    const thumb = document.getElementById("slide-lockout-thumb");
+    const text = document.getElementById("slide-lockout-text");
+    const icon = document.getElementById("slide-lockout-icon");
+    const btnConfirm = document.getElementById("btn-confirm-delete-unlocked");
+    const modal = document.getElementById("delete-impact-modal");
+    const btnClose = document.getElementById("btn-close-delete-modal");
+    const btnCancel = document.getElementById("btn-cancel-delete");
+
+    if (btnClose) btnClose.addEventListener("click", () => modal?.classList.add("hidden"));
+    if (btnCancel) btnCancel.addEventListener("click", () => modal?.classList.add("hidden"));
+    if (modal) {
+        modal.addEventListener("click", (e) => {
+            if (e.target === modal) modal.classList.add("hidden");
+        });
+    }
+
+    if (!track || !thumb) return;
+
+    let isDragging = false;
+    let startX = 0;
+    const initialRight = 4; // css right: 4px
+
+    function startDrag(e) {
+        if (isSlideUnlocked) return;
+        isDragging = true;
+        startX = e.type.includes("touch") ? e.touches[0].clientX : e.clientX;
+        thumb.style.transition = "none";
+        document.body.style.userSelect = "none";
+    }
+
+    function doDrag(e) {
+        if (!isDragging || isSlideUnlocked) return;
+        const currentX = e.type.includes("touch") ? e.touches[0].clientX : e.clientX;
+        // Dragging left: currentX < startX, deltaX > 0
+        const deltaX = startX - currentX;
+        const trackWidth = track.clientWidth;
+        const thumbWidth = thumb.offsetWidth;
+        const maxDrag = Math.max(0, trackWidth - thumbWidth - 8);
+
+        const clampedDelta = Math.max(0, Math.min(deltaX, maxDrag));
+        thumb.style.right = (initialRight + clampedDelta) + "px";
+
+        if (clampedDelta >= maxDrag * 0.85) {
+            track.classList.add("unlocked");
+            if (icon) icon.className = "fa-solid fa-lock-open";
+        } else {
+            track.classList.remove("unlocked");
+            if (icon) icon.className = "fa-solid fa-lock";
+        }
+    }
+
+    function endDrag(e) {
+        if (!isDragging || isSlideUnlocked) return;
+        isDragging = false;
+        document.body.style.userSelect = "";
+
+        const trackWidth = track.clientWidth;
+        const thumbWidth = thumb.offsetWidth;
+        const maxDrag = Math.max(0, trackWidth - thumbWidth - 8);
+        const currentRight = parseFloat(thumb.style.right || initialRight);
+        const draggedDist = currentRight - initialRight;
+
+        if (draggedDist >= maxDrag * 0.85) {
+            isSlideUnlocked = true;
+            thumb.style.transition = "right 0.15s ease-out";
+            thumb.style.right = (initialRight + maxDrag) + "px";
+            track.classList.add("unlocked");
+            if (icon) icon.className = "fa-solid fa-lock-open";
+            if (text) text.innerHTML = `<i class="fa-solid fa-check"></i> Unlocked for permanent deletion`;
+            if (btnConfirm) btnConfirm.classList.add("revealed");
+        } else {
+            thumb.style.transition = "right 0.25s ease-out";
+            thumb.style.right = initialRight + "px";
+            track.classList.remove("unlocked");
+            if (icon) icon.className = "fa-solid fa-lock";
+            setTimeout(() => {
+                thumb.style.transition = "";
+            }, 250);
+        }
+    }
+
+    // Mouse drag
+    thumb.addEventListener("mousedown", startDrag);
+    window.addEventListener("mousemove", doDrag);
+    window.addEventListener("mouseup", endDrag);
+
+    // Touch drag
+    thumb.addEventListener("touchstart", startDrag, { passive: true });
+    window.addEventListener("touchmove", doDrag, { passive: true });
+    window.addEventListener("touchend", endDrag);
+
+    // Action button
+    if (btnConfirm) {
+        btnConfirm.addEventListener("click", async () => {
+            if (!isSlideUnlocked || !currentDeleteImpact) return;
+
+            const tracksToDelete = [];
+            (currentDeleteImpact.albums || []).forEach(alb => {
+                (alb.tracks || []).forEach(t => {
+                    if (!excludedTrackIds.has(t.id)) {
+                        tracksToDelete.push(t.id);
+                    }
+                });
+            });
+
+            if (tracksToDelete.length === 0) {
+                showToast("All items were spared. Nothing to delete.", "info");
+                modal?.classList.add("hidden");
+                return;
+            }
+
+            btnConfirm.disabled = true;
+            btnConfirm.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i> Permanently Deleting ${tracksToDelete.length} Songs...`;
+
+            try {
+                const res = await fetch("/api/library/delete", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        track_ids: tracksToDelete,
+                        delete_files: true
+                    })
+                });
+
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    showToast(`Successfully deleted ${data.deleted_tracks} tracks (freed ${data.freed_str})!`, "success");
+                    modal?.classList.add("hidden");
+
+                    // Refresh stats and library view
+                    loadStats();
+                    const activeTab = document.querySelector(".nav-item.active")?.dataset?.tab;
+                    if (activeTab === "library") {
+                        if (typeof currentLibraryViewMode !== "undefined" && currentLibraryViewMode === "artists") {
+                            loadArtistsList();
+                        } else {
+                            loadLibraryBrowser();
+                        }
+                    }
+                } else {
+                    showToast(data.error || "Failed to delete library items", "error");
+                    btnConfirm.disabled = false;
+                    btnConfirm.innerHTML = `<i class="fa-solid fa-trash-can"></i> Permanently Delete Selected Items`;
+                }
+            } catch (err) {
+                showToast("Network error executing deletion: " + err.message, "error");
+                btnConfirm.disabled = false;
+                btnConfirm.innerHTML = `<i class="fa-solid fa-trash-can"></i> Permanently Delete Selected Items`;
+            }
+        });
+    }
 }

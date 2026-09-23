@@ -2860,6 +2860,283 @@ paths:
             logger.error(f"Error finding track '{artist} - {title}': {e}")
         return None
 
+    def get_deletion_impact(
+        self,
+        target_type: str,
+        target_id: Optional[Any] = None,
+        artist_name: Optional[str] = None,
+        album_id: Optional[int] = None,
+        song_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Calculate the precise impact (albums, tracks, byte size, file paths) of deleting an artist, album, or song."""
+        db_path = os.path.join(self.beets_dir, "library.db")
+        if not os.path.exists(db_path):
+            return {"success": False, "error": "Library DB not found"}
+
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+
+        target_name = ""
+        items_query = ""
+        params = ()
+
+        if target_type == "artist":
+            name = artist_name or str(target_id or "")
+            target_name = name
+            items_query = """
+                SELECT id, album_id, album, artist, albumartist, title, track, disc, length, path, year, format
+                FROM items
+                WHERE artist = ? OR albumartist = ?
+                ORDER BY album, disc, track, title
+            """
+            params = (name, name)
+        elif target_type == "album":
+            alb_id = album_id if album_id is not None else target_id
+            if isinstance(alb_id, int) or (isinstance(alb_id, str) and str(alb_id).isdigit()):
+                alb_id_int = int(alb_id)
+                c.execute("SELECT album, albumartist, year FROM albums WHERE id = ?", (alb_id_int,))
+                arow = c.fetchone()
+                if arow:
+                    target_name = f"{arow[1]} - {arow[0]}" if arow[1] else arow[0]
+                items_query = """
+                    SELECT id, album_id, album, artist, albumartist, title, track, disc, length, path, year, format
+                    FROM items
+                    WHERE album_id = ?
+                    ORDER BY disc, track, title
+                """
+                params = (alb_id_int,)
+            else:
+                alb_name = str(alb_id or "")
+                target_name = alb_name
+                items_query = """
+                    SELECT id, album_id, album, artist, albumartist, title, track, disc, length, path, year, format
+                    FROM items
+                    WHERE album = ?
+                    ORDER BY disc, track, title
+                """
+                params = (alb_name,)
+        elif target_type == "song":
+            s_id = song_id if song_id is not None else target_id
+            s_id_int = int(s_id)
+            items_query = """
+                SELECT id, album_id, album, artist, albumartist, title, track, disc, length, path, year, format
+                FROM items
+                WHERE id = ?
+            """
+            params = (s_id_int,)
+        else:
+            conn.close()
+            return {"success": False, "error": f"Invalid target_type: {target_type}"}
+
+        c.execute(items_query, params)
+        rows = c.fetchall()
+
+        if rows and not target_name:
+            if target_type == "song":
+                target_name = f"{rows[0][3]} - {rows[0][5]}"
+            elif target_type == "album":
+                target_name = f"{rows[0][3]} - {rows[0][2]}"
+
+        from collections import OrderedDict
+        albums_dict = OrderedDict()
+        total_bytes = 0
+
+        for r in rows:
+            t_id = r[0]
+            t_alb_id = r[1]
+            t_alb_name = r[2] or "Non-Album Tracks"
+            t_artist = r[3] or r[4] or "Unknown Artist"
+            t_title = r[5] or "Unknown Title"
+            t_track_num = r[6] or 0
+            t_disc = r[7] or 1
+            t_length = max(1, round(float(r[8] or 0)))
+            raw_path = r[9]
+            t_year = r[10] or ""
+            t_format = r[11] or "MP3"
+
+            full_path = self.resolve_audio_path(raw_path)
+            file_exists = os.path.exists(full_path)
+            file_size = os.path.getsize(full_path) if file_exists else 0
+            total_bytes += file_size
+
+            album_key = f"{t_alb_id}_{t_alb_name}"
+            if album_key not in albums_dict:
+                albums_dict[album_key] = {
+                    "album_id": t_alb_id,
+                    "album_name": t_alb_name,
+                    "artist": t_artist,
+                    "year": t_year,
+                    "track_count": 0,
+                    "total_bytes": 0,
+                    "tracks": []
+                }
+
+            albums_dict[album_key]["track_count"] += 1
+            albums_dict[album_key]["total_bytes"] += file_size
+            albums_dict[album_key]["tracks"].append({
+                "id": t_id,
+                "album_id": t_alb_id,
+                "title": t_title,
+                "artist": t_artist,
+                "album": t_alb_name,
+                "track_number": t_track_num,
+                "disc": t_disc,
+                "duration": f"{t_length // 60}:{t_length % 60:02d}",
+                "format": t_format,
+                "size_bytes": file_size,
+                "size_str": f"{file_size / (1024*1024):.1f} MB" if file_size > 1024*1024 else f"{file_size / 1024:.1f} KB",
+                "file_exists": file_exists,
+                "path": full_path
+            })
+
+        for a in albums_dict.values():
+            a_bytes = a["total_bytes"]
+            a["size_str"] = f"{a_bytes / (1024*1024):.1f} MB" if a_bytes > 1024*1024 else f"{a_bytes / 1024:.1f} KB"
+
+        conn.close()
+
+        total_tracks = len(rows)
+        total_albums = len(albums_dict)
+        if total_bytes >= 1024 * 1024 * 1024:
+            total_size_str = f"{total_bytes / (1024 * 1024 * 1024):.2f} GB"
+        elif total_bytes >= 1024 * 1024:
+            total_size_str = f"{total_bytes / (1024 * 1024):.1f} MB"
+        else:
+            total_size_str = f"{total_bytes / 1024:.1f} KB"
+
+        return {
+            "success": True,
+            "target_type": target_type,
+            "target_name": target_name,
+            "total_albums": total_albums,
+            "total_tracks": total_tracks,
+            "total_bytes": total_bytes,
+            "total_size_str": total_size_str,
+            "albums": list(albums_dict.values())
+        }
+
+    async def delete_library_items(self, track_ids: List[int], delete_files: bool = True) -> Dict[str, Any]:
+        """Permanently delete specified tracks, associated empty album/artist directories, and DB rows."""
+        db_path = os.path.join(self.beets_dir, "library.db")
+        if not os.path.exists(db_path):
+            return {"success": False, "error": "Library DB not found"}
+
+        if not track_ids:
+            return {"success": False, "error": "No track IDs provided for deletion"}
+
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+
+        placeholders = ",".join("?" for _ in track_ids)
+        c.execute(f"SELECT id, album_id, album, artist, albumartist, path FROM items WHERE id IN ({placeholders})", track_ids)
+        track_rows = c.fetchall()
+
+        if not track_rows:
+            conn.close()
+            return {"success": False, "error": "None of the specified tracks were found in the database"}
+
+        affected_album_ids = set()
+        affected_artists = set()
+        deleted_files_count = 0
+        freed_bytes = 0
+        album_dirs_to_check = set()
+        artist_dirs_to_check = set()
+
+        for r in track_rows:
+            t_id = r[0]
+            alb_id = r[1]
+            artist = r[3]
+            albumartist = r[4]
+            raw_path = r[5]
+
+            if alb_id:
+                affected_album_ids.add(alb_id)
+            if artist:
+                affected_artists.add(artist)
+            if albumartist:
+                affected_artists.add(albumartist)
+
+            full_path = self.resolve_audio_path(raw_path)
+            if delete_files and full_path and os.path.exists(full_path):
+                try:
+                    f_size = os.path.getsize(full_path)
+                    freed_bytes += f_size
+                    parent_dir = os.path.dirname(full_path)
+                    album_dirs_to_check.add(parent_dir)
+                    artist_dirs_to_check.add(os.path.dirname(parent_dir))
+                    os.remove(full_path)
+                    deleted_files_count += 1
+                except Exception as e:
+                    logger.warning(f"Could not remove audio file {full_path}: {e}")
+
+        c.execute(f"DELETE FROM items WHERE id IN ({placeholders})", track_ids)
+        conn.commit()
+
+        deleted_albums_count = 0
+        for a_id in affected_album_ids:
+            c.execute("SELECT count(*) FROM items WHERE album_id = ?", (a_id,))
+            remaining = c.fetchone()[0]
+            if remaining == 0:
+                c.execute("DELETE FROM albums WHERE id = ?", (a_id,))
+                deleted_albums_count += 1
+
+        conn.commit()
+        conn.close()
+
+        if delete_files:
+            for adir in album_dirs_to_check:
+                if os.path.exists(adir) and os.path.isdir(adir):
+                    try:
+                        entries = os.listdir(adir)
+                        remaining_files = [f for f in entries if os.path.isfile(os.path.join(adir, f))]
+                        audio_remaining = [f for f in remaining_files if os.path.splitext(f)[1].lower() in {".mp3", ".flac", ".m4a", ".ogg", ".wav", ".opus", ".aac"}]
+                        if not audio_remaining:
+                            for f in remaining_files:
+                                try:
+                                    os.remove(os.path.join(adir, f))
+                                except Exception:
+                                    pass
+                            try:
+                                os.rmdir(adir)
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        logger.warning(f"Error cleaning album dir {adir}: {e}")
+
+            for ardir in artist_dirs_to_check:
+                if os.path.exists(ardir) and os.path.isdir(ardir):
+                    try:
+                        if not os.listdir(ardir):
+                            os.rmdir(ardir)
+                    except Exception:
+                        pass
+
+        self._disk_files_cache = None
+        self._last_missing_tracks = None
+        if os.path.exists(self.missing_cache_file):
+            try:
+                os.remove(self.missing_cache_file)
+            except Exception:
+                pass
+
+        if freed_bytes >= 1024 * 1024 * 1024:
+            freed_str = f"{freed_bytes / (1024 * 1024 * 1024):.2f} GB"
+        elif freed_bytes >= 1024 * 1024:
+            freed_str = f"{freed_bytes / (1024 * 1024):.1f} MB"
+        else:
+            freed_str = f"{freed_bytes / 1024:.1f} KB"
+
+        await self.broadcast_log(f"\n[LIBRARY] Permanently deleted {len(track_ids)} track(s) ({deleted_files_count} file(s) on disk). Freed {freed_str}.\n")
+
+        return {
+            "success": True,
+            "deleted_tracks": len(track_ids),
+            "deleted_albums": deleted_albums_count,
+            "deleted_files": deleted_files_count,
+            "freed_bytes": freed_bytes,
+            "freed_str": freed_str
+        }
+
     def get_or_create_audio_preview(self, track_id: int) -> Optional[str]:
         """On-demand 30-second preview clip extraction using ffmpeg into /.music_preview."""
         os.makedirs(self.preview_dir, exist_ok=True)
