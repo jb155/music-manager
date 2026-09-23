@@ -4279,10 +4279,10 @@ function renderDeleteImpactUI() {
             const albAllExcluded = allAlbTrackIds.length > 0 && allAlbTrackIds.every(id => excludedTrackIds.has(id));
 
             html += `
-                <div class="delete-album-block mb-2">
-                    <div class="delete-exclusion-item ${albAllExcluded ? 'is-kept' : ''}" style="background: rgba(255, 255, 255, 0.05); font-weight: 600; margin-bottom: 4px; border-radius: 6px;">
+                <div class="delete-album-block mb-3">
+                    <div class="delete-exclusion-item ${albAllExcluded ? 'is-kept' : ''}" style="background: rgba(255, 255, 255, 0.06); font-weight: 600; margin-bottom: 6px; border-radius: 8px; padding: 10px 14px;">
                         <div class="delete-item-info">
-                            <i class="fa-solid fa-compact-disc" style="color: #60a5fa;"></i>
+                            <i class="fa-solid fa-compact-disc" style="color: #60a5fa; font-size: 15px;"></i>
                             <span class="item-title" title="${escapeAttr(alb.album_name)}">${escapeHtml(alb.album_name)}</span>
                             <span class="item-sub">(${alb.tracks.length} tracks &bull; ${escapeHtml(alb.size_str)})</span>
                         </div>
@@ -4291,11 +4291,11 @@ function renderDeleteImpactUI() {
                             ${albAllExcluded ? 'Include Album' : 'Keep Album'}
                         </button>
                     </div>
-                    <div class="delete-tracks-sublist" style="padding-left: 10px;">
+                    <div class="delete-tracks-sublist" style="padding-left: 14px; display: flex; flex-direction: column; gap: 4px;">
                         ${(alb.tracks || []).map(t => {
                             const isKept = excludedTrackIds.has(t.id);
                             return `
-                                <div class="delete-exclusion-item ${isKept ? 'is-kept' : ''}" data-track-id="${t.id}">
+                                <div class="delete-exclusion-item ${isKept ? 'is-kept' : ''}" data-track-id="${t.id}" style="padding: 8px 12px;">
                                     <div class="delete-item-info">
                                         <i class="fa-solid fa-music text-muted" style="font-size: 11px;"></i>
                                         <span class="item-title" title="${escapeAttr(t.title)}">${escapeHtml(t.title)}</span>
