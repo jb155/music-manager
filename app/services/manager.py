@@ -14,7 +14,7 @@ import subprocess
 import urllib.request
 import urllib.error
 import urllib.parse
-from typing import AsyncGenerator, List, Dict, Any, Optional
+from typing import AsyncGenerator, List, Dict, Any, Optional, Tuple, Union
 
 # Ensure HOME and XDG environment variables point to a writable config directory
 # to prevent SpotDL, Spotipy, and yt-dlp from failing with PermissionError when running as unprivileged user
@@ -679,10 +679,12 @@ paths:
                 await self.broadcast_log(f"[FAIL] yt-dlp search also failed for: {clean_target}\n")
             return False
 
-    async def _download_query(self, query: str, max_retries: int = 2, check_library_duplicate: bool = True, target_album: Optional[str] = None) -> bool:
-        """Download query using spotdl with audio provider fallbacks, progressive query simplification, then yt-dlp fallback."""
+    async def _download_query(self, query: str, max_retries: int = 2, check_library_duplicate: bool = True, target_album: Optional[str] = None) -> Tuple[bool, bool]:
+        """Download query using spotdl with audio provider fallbacks, progressive query simplification, then yt-dlp fallback.
+        Returns: (downloaded: bool, skipped: bool)
+        """
         if self._abort_requested:
-            return False
+            return False, False
 
         is_url = query.strip().startswith("http://") or query.strip().startswith("https://")
 
@@ -693,14 +695,14 @@ paths:
             if self.is_song_in_library(art, tit, album=target_album):
                 target_str = f" in '{target_album}'" if target_album else ""
                 await self.broadcast_log(f"[SKIP] '{art} - {tit}' is already in your library{target_str}. Skipping download.\n")
-                return True
+                return False, True
 
         current_query = query if is_url else clean_search_query(query)
 
         success = False
         for attempt in range(1, max_retries + 1):
             if self._abort_requested:
-                return False
+                return False, False
 
             if attempt > 1 and not is_url:
                 simplified = simplify_search_query(query, attempt=attempt)
@@ -714,7 +716,7 @@ paths:
 
             code = await self._run_command(spotdl_cmd, cwd=self.new_music_dir, timeout=300)
             if self._abort_requested:
-                return False
+                return False, False
 
             if code == 0:
                 success = True
@@ -723,7 +725,7 @@ paths:
             else:
                 if attempt < max_retries:
                     if self._abort_requested:
-                        return False
+                        return False, False
                     await self.broadcast_log(f"[WARN] SpotDL attempt {attempt} failed. Retrying in 2 seconds...\n")
                     await asyncio.sleep(2)
 
@@ -731,9 +733,30 @@ paths:
         if not success and not is_url and not self._abort_requested:
             success = await self._ytdlp_fallback(current_query)
 
-        return success
+        # If target_album was provided, ensure any newly downloaded audio files in staging are tagged with target_album
+        if success and target_album:
+            try:
+                audio_exts = {".mp3", ".flac", ".m4a", ".ogg", ".wav", ".opus", ".aac"}
+                for root, dirs, files in os.walk(self.new_music_dir):
+                    dirs[:] = [d for d in dirs if not d.startswith(".st") and not d.startswith(".syncthing") and d not in {".stfolder", ".stversions"}]
+                    for f in files:
+                        if not self.is_ignored_staging_file(f) and os.path.splitext(f)[1].lower() in audio_exts:
+                            fp = os.path.join(root, f)
+                            try:
+                                import mutagen
+                                mf = mutagen.File(fp, easy=True)
+                                if mf is not None:
+                                    mf["album"] = target_album
+                                    mf.save()
+                                    await self.broadcast_log(f"[METADATA] Set album tag of '{f}' to target album: '{target_album}'\n")
+                            except Exception as tag_err:
+                                logger.warning(f"Could not retag album on {f}: {tag_err}")
+            except Exception as e:
+                logger.warning(f"Error tagging staging files with target_album: {e}")
 
-    async def download_track_or_url(self, query: str, max_retries: int = 3, auto_import: bool = False, auto_complete_album: bool = False) -> Dict[str, Any]:
+        return success, False
+
+    async def download_track_or_url(self, query: str, max_retries: int = 3, auto_import: bool = False, auto_complete_album: bool = False, target_album: Optional[str] = None, force: bool = False) -> Dict[str, Any]:
         """Download a query or Spotify/YouTube URL using spotdl with retries and timeout safety."""
         if not query or not query.strip():
             return {"success": False, "error": "Query cannot be empty"}
@@ -748,16 +771,24 @@ paths:
             "message": f"Downloading '{query}'..."
         }
 
-        success = False
+        downloaded = False
+        skipped = False
         try:
-            success = await self._download_query(query, max_retries=max_retries)
+            downloaded, skipped = await self._download_query(
+                query,
+                max_retries=max_retries,
+                check_library_duplicate=(not force),
+                target_album=target_album
+            )
 
-            if success and auto_import and not self._abort_requested:
+            if downloaded and auto_import and not self._abort_requested:
                 await self.broadcast_log("\n[AUTO-IMPORT] Triggering library import after download...\n")
                 await self.import_library()
 
                 if auto_complete_album and not self._abort_requested:
                     await self.auto_complete_recent_albums(since_timestamp=start_time)
+            elif skipped:
+                await self.broadcast_log("\n[INFO] Track already exists in library; auto-import skipped.\n")
         except Exception as e:
             logger.error(f"Error in download_track_or_url: {e}", exc_info=True)
             await self.broadcast_log(f"\n[ERROR] Unhandled error during download: {e}\n")
@@ -766,12 +797,12 @@ paths:
                 self.task_progress = {
                     "status": "idle",
                     "action": None,
-                    "current": 1 if success else 0,
+                    "current": 1 if (downloaded or skipped) else 0,
                     "total": 1,
-                    "message": "Completed" if success else "Failed"
+                    "message": "Completed" if (downloaded or skipped) else "Failed"
                 }
 
-        return {"success": success, "query": query, "aborted": self._abort_requested}
+        return {"success": (downloaded or skipped), "downloaded": downloaded, "skipped": skipped, "query": query, "aborted": self._abort_requested}
 
     async def auto_complete_recent_albums(self, since_timestamp: float) -> Dict[str, Any]:
         """Check newly imported albums for missing tracks via MusicBrainz and automatically download them."""
@@ -1002,13 +1033,15 @@ paths:
                 self.task_progress["message"] = f"Downloading ({i}/{total}): {track}"
                 await self.broadcast_log(f"\n[{i}/{total}] Downloading: {track}\n")
 
-                track_success = await self._download_query(track, max_retries=2, check_library_duplicate=check_library_duplicate)
+                downloaded, skipped = await self._download_query(track, max_retries=2, check_library_duplicate=check_library_duplicate)
                 if self._abort_requested:
                     await self.broadcast_log(f"\n[ABORT] Stopped batch download after item {i}/{total}.\n")
                     break
 
-                if track_success:
+                if downloaded:
                     success_count += 1
+                elif skipped:
+                    pass
                 else:
                     await self.broadcast_log(f"[ERROR] Failed to download: {track}. Skipping to next.\n")
                     fail_count += 1
@@ -1039,26 +1072,50 @@ paths:
 
         return {"success": not self._abort_requested, "downloaded": success_count, "failed": fail_count, "total": total, "aborted": self._abort_requested}
 
-    async def download_missing_tracks(self, tracks: Optional[List[str]] = None, auto_import: bool = False) -> Dict[str, Any]:
+    async def download_missing_tracks(self, tracks: Optional[List[Union[str, Dict[str, Any]]]] = None, auto_import: bool = False) -> Dict[str, Any]:
         """Download missing tracks sequentially with error resilience, abort handling, and cache pruning."""
         self._abort_requested = False
         cached_items = self.get_cached_missing_tracks()
-        if tracks is None:
+
+        track_items = []
+        if tracks is not None:
+            for item in tracks:
+                if isinstance(item, dict) and item.get("query"):
+                    track_items.append({
+                        "query": item["query"],
+                        "album": item.get("album"),
+                        "artist": item.get("artist"),
+                        "title": item.get("title")
+                    })
+                elif isinstance(item, str) and item.strip():
+                    track_items.append({
+                        "query": item.strip(),
+                        "album": None,
+                        "artist": None,
+                        "title": None
+                    })
+        else:
             if not cached_items:
                 cached_items = await self.get_missing_tracks()
-            tracks = [item["query"] for item in cached_items]
+            for item in (cached_items or []):
+                if isinstance(item, dict) and item.get("query"):
+                    track_items.append({
+                        "query": item["query"],
+                        "album": item.get("album"),
+                        "artist": item.get("artist"),
+                        "title": item.get("title")
+                    })
 
-        total = len(tracks)
+        total = len(track_items)
         if total == 0:
             await self.broadcast_log("[INFO] No missing tracks to download.\n")
             return {"success": True, "downloaded": 0, "failed": 0, "total": 0}
 
-        # Build lookup from query to target album
-        query_to_album = {}
+        cache_query_to_album = {}
         if cached_items:
-            for item in cached_items:
-                if isinstance(item, dict) and item.get("query") and item.get("album"):
-                    query_to_album[item["query"]] = item["album"]
+            for c_item in cached_items:
+                if isinstance(c_item, dict) and c_item.get("query") and c_item.get("album"):
+                    cache_query_to_album[c_item["query"]] = c_item["album"]
 
         self.task_progress = {
             "status": "running",
@@ -1077,31 +1134,36 @@ paths:
         downloaded_queries = set()
 
         try:
-            for i, track in enumerate(tracks, 1):
+            for i, item in enumerate(track_items, 1):
                 if self._abort_requested:
                     await self.broadcast_log(f"\n[ABORT] Stopped missing tracks download before item {i}/{total}.\n")
                     break
 
-                self.task_progress["current"] = i
-                self.task_progress["message"] = f"Downloading ({i}/{total}): {track}"
-                await self.broadcast_log(f"\n[{i}/{total}] Downloading: {track}\n")
+                track_query = item["query"]
+                target_album = item.get("album") or cache_query_to_album.get(track_query)
 
-                target_album = query_to_album.get(track)
-                track_success = await self._download_query(
-                    track,
+                self.task_progress["current"] = i
+                self.task_progress["message"] = f"Downloading ({i}/{total}): {track_query}"
+                target_desc = f" (target album: '{target_album}')" if target_album else ""
+                await self.broadcast_log(f"\n[{i}/{total}] Downloading: {track_query}{target_desc}\n")
+
+                downloaded, skipped = await self._download_query(
+                    track_query,
                     max_retries=2,
-                    check_library_duplicate=(target_album is not None),
+                    check_library_duplicate=True,
                     target_album=target_album
                 )
                 if self._abort_requested:
                     await self.broadcast_log(f"\n[ABORT] Stopped missing tracks download after item {i}/{total}.\n")
                     break
 
-                if track_success:
+                if downloaded:
                     success_count += 1
-                    downloaded_queries.add(track)
+                    downloaded_queries.add(track_query)
+                elif skipped:
+                    downloaded_queries.add(track_query)
                 else:
-                    await self.broadcast_log(f"[ERROR] Failed to download: {track}. Skipping to next.\n")
+                    await self.broadcast_log(f"[ERROR] Failed to download: {track_query}. Skipping to next.\n")
                     fail_count += 1
 
             if self._abort_requested:
@@ -1149,6 +1211,23 @@ paths:
 
         leftovers = []
         try:
+            # Check if staging folder has any audio files to import
+            audio_exts = {".mp3", ".flac", ".m4a", ".ogg", ".wav", ".opus", ".aac"}
+            has_staging_audio = False
+            if os.path.exists(self.new_music_dir):
+                for root, dirs, files in os.walk(self.new_music_dir):
+                    dirs[:] = [d for d in dirs if not d.startswith(".st") and not d.startswith(".syncthing") and d not in {".stfolder", ".stversions"}]
+                    for f in files:
+                        if not self.is_ignored_staging_file(f) and os.path.splitext(f)[1].lower() in audio_exts:
+                            has_staging_audio = True
+                            break
+                    if has_staging_audio:
+                        break
+
+            if not has_staging_audio:
+                await self.broadcast_log("[INFO] Staging directory '/music_new' is empty. Nothing to import.\n")
+                return {"status": "ok", "message": "Staging directory is empty. Nothing to import.", "leftovers": []}
+
             # Clean any stale/interrupted Beets resume state so it doesn't force bad grouped imports
             state_file = os.path.join(self.beets_dir, "state.pickle")
             if os.path.exists(state_file):

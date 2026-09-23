@@ -491,7 +491,9 @@ async function downloadMissingSingleTrack(idx, query) {
         btn.disabled = true;
         btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Downloading...`;
     }
-    await downloadSingleTrack(query, false);
+    const track = (typeof missingTracksData !== 'undefined' && missingTracksData && missingTracksData[idx]) ? missingTracksData[idx] : null;
+    const targetAlbum = track ? (track.album || null) : null;
+    await downloadSingleTrack(query, false, targetAlbum);
     if (btn) {
         btn.className = "btn btn-sm";
         btn.style.background = "rgba(34, 197, 94, 0.2)";
@@ -521,16 +523,21 @@ document.getElementById("btn-download-all-missing").addEventListener("click", as
     }
     if (!confirm(`Download all ${missingTracksData.length} missing tracks sequentially?`)) return;
 
-    const trackQueries = missingTracksData.map(t => t.query).filter(Boolean);
+    const trackItems = missingTracksData.map(t => ({
+        query: t.query,
+        album: t.album,
+        artist: t.artist,
+        title: t.title
+    })).filter(t => Boolean(t.query));
 
     try {
         const res = await fetch("/api/missing/download", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ tracks: trackQueries, auto_import: true })
+            body: JSON.stringify({ tracks: trackItems, auto_import: true })
         });
         if (res.ok) {
-            showToast(`Started batch download of ${trackQueries.length} missing tracks`, "success");
+            showToast(`Started batch download of ${trackItems.length} missing tracks`, "success");
             document.querySelector('[data-tab="terminal"]').click();
         } else {
             const err = await res.json();
@@ -541,20 +548,25 @@ document.getElementById("btn-download-all-missing").addEventListener("click", as
     }
 });
 
-async function downloadSingleTrack(query, autoComplete = null) {
+async function downloadSingleTrack(query, autoComplete = null, targetAlbum = null, force = false) {
     if (autoComplete === null && document.getElementById("auto-complete-toggle")) {
         autoComplete = document.getElementById("auto-complete-toggle").checked;
     }
     try {
+        const payload = {
+            query: query,
+            auto_import: true,
+            max_retries: 3,
+            auto_complete_album: Boolean(autoComplete),
+            force: Boolean(force)
+        };
+        if (targetAlbum) {
+            payload.target_album = targetAlbum;
+        }
         const res = await fetch("/api/download", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                query: query,
-                auto_import: true,
-                max_retries: 3,
-                auto_complete_album: Boolean(autoComplete)
-            })
+            body: JSON.stringify(payload)
         });
         if (res.ok) {
             showToast(`Downloading: ${query}`, "success");

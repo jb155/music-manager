@@ -26,7 +26,7 @@ from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 
 from app.services.manager import MusicManagerService
 
@@ -37,7 +37,7 @@ except Exception:
     pass
 
 
-APP_VERSION = "1.3.7"
+APP_VERSION = "1.3.8"
 
 app = FastAPI(title="Music Manager Web", version=APP_VERSION)
 
@@ -101,9 +101,11 @@ class DownloadRequest(BaseModel):
     auto_import: bool = False
     max_retries: int = 3
     auto_complete_album: bool = False
+    target_album: Optional[str] = None
+    force: bool = False
 
 class MissingDownloadRequest(BaseModel):
-    tracks: Optional[List[str]] = None
+    tracks: Optional[List[Union[str, Dict[str, Any]]]] = None
     auto_import: bool = False
 
 class ImportRequest(BaseModel):
@@ -298,7 +300,15 @@ async def start_download(req: DownloadRequest, bg: BackgroundTasks):
     if service.task_progress["status"] == "running":
         raise HTTPException(status_code=409, detail="A task is already running.")
     service._abort_requested = False
-    bg.add_task(service.download_track_or_url, req.query, req.max_retries, req.auto_import, req.auto_complete_album)
+    bg.add_task(
+        service.download_track_or_url,
+        req.query,
+        req.max_retries,
+        req.auto_import,
+        req.auto_complete_album,
+        req.target_album,
+        req.force
+    )
     return {"message": "Download task started", "query": req.query}
 
 @app.post("/api/missing/download")

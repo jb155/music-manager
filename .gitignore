@@ -30,3 +30,7 @@ compose.override.yml
 compose.yml
 music-manager.env
 music-manager.yml
+
+config/.cache/
+config/.config/
+config/.local/
