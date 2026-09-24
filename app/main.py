@@ -37,7 +37,7 @@ except Exception:
     pass
 
 
-APP_VERSION = "1.5.1"
+APP_VERSION = "1.5.2"
 
 app = FastAPI(title="Music Manager Web", version=APP_VERSION)
 
@@ -127,6 +127,8 @@ class RecommendRequest(BaseModel):
     venn_slice: Optional[str] = "overlap_only"
     preset: Optional[str] = None
     count: Optional[int] = 6
+    anchor_artists: Optional[List[str]] = None
+    custom_guidance: Optional[str] = None
 
 class AddOllamaServerRequest(BaseModel):
     host: str
@@ -429,9 +431,14 @@ async def remove_ai_server(host: str):
     return service.remove_ollama_server(host)
 
 @app.get("/api/ai/taste-profile")
-async def get_taste_profile():
-    """Return library taste profile summary."""
-    return service.get_taste_profile(top_n=40)
+async def get_taste_profile(include_all: bool = True):
+    """Return library taste profile summary, all artists, and dynamic library styles."""
+    return service.get_taste_profile(top_n=40, include_all=include_all)
+
+@app.get("/api/ai/style-focuses")
+async def get_ai_style_focuses():
+    """Return dynamic style focus presets generated from library taxonomy."""
+    return {"styles": service.get_dynamic_style_focuses()}
 
 @app.post("/api/ai/recommend")
 async def get_ai_recommendations(req: RecommendRequest):
@@ -440,7 +447,9 @@ async def get_ai_recommendations(req: RecommendRequest):
         prompt=req.prompt or "",
         model=req.model,
         preset=req.preset,
-        count=req.count or 6
+        count=req.count or 6,
+        anchor_artists=req.anchor_artists,
+        custom_guidance=req.custom_guidance
     )
     if not result.get("success"):
         raise HTTPException(status_code=502, detail=result.get("error", "AI generation failed"))

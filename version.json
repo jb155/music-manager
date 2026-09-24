@@ -1,5 +1,5 @@
 {
-  "version": "1.5.1",
+  "version": "1.5.2",
   "release_date": "2026-09-24",
-  "notes": "Added Artist search ranking by % match; added Album Edition Consolidation & Deduplication with spacious modal UI; added balanced multi-artist playlist creation; streamlined deletion modal layout with single confirm button and automatic active view refresh."
+  "notes": "Added support for all library artists as anchor artists with instant search filter, show all/top toggle, and multi-artist anchor focus selection; replaced hardcoded style presets with dynamic style focus recommendations generated directly from user's Beets library genres and artist clusters."
 }

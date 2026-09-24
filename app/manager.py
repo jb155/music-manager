@@ -15,7 +15,7 @@ import urllib.request
 import urllib.error
 import urllib.parse
 import difflib
-from collections import defaultdict
+from collections import defaultdict, Counter
 from typing import AsyncGenerator, List, Dict, Any, Optional, Tuple, Union
 
 # Ensure HOME and XDG environment variables point to a writable config directory
@@ -1731,8 +1731,160 @@ paths:
     # AI RECOMMENDATIONS POWERED BY LOCAL OLLAMA
     # =========================================================================
 
-    def get_taste_profile(self, top_n: int = 40) -> Dict[str, Any]:
-        """Extract top artists, album count, and genres from Beets DB."""
+    def get_dynamic_style_focuses(self) -> List[Dict[str, Any]]:
+        """Dynamically generate style focus presets grounded in the user's actual Beets library genres and artists."""
+        db_path = os.path.join(self.beets_dir, "library.db")
+        if not os.path.exists(db_path):
+            alt_db = os.path.join(self.music_dir, "library.db")
+            if os.path.exists(alt_db):
+                db_path = alt_db
+
+        STYLE_TAXONOMY = [
+            {
+                "id": "metal_hard_rock",
+                "name": "Metal & Hard Rock",
+                "icon": "fa-skull",
+                "keywords": ["metal", "heavy metal", "metalcore", "thrash metal", "groove metal", "hard rock", "industrial metal", "nu metal", "alternative metal"],
+                "guidance_template": "Focus specifically on high-energy Heavy Metal, Metalcore, and Hard Rock with crushing riffs and aggressive drive (akin to {artists})."
+            },
+            {
+                "id": "classic_prog",
+                "name": "Classic & Prog Rock",
+                "icon": "fa-compact-disc",
+                "keywords": ["classic rock", "progressive rock", "psychedelic rock", "glam rock", "art rock", "arena rock"],
+                "guidance_template": "Focus specifically on legendary Classic Rock, Progressive Rock, and timeless analog masterclasses (akin to {artists})."
+            },
+            {
+                "id": "indie_alt",
+                "name": "Indie & Alternative Rock",
+                "icon": "fa-guitar",
+                "keywords": ["indie", "indie rock", "alternative rock", "garage rock", "post-punk", "punk rock", "indie pop", "grunge"],
+                "guidance_template": "Focus specifically on energetic Indie Rock, catchy Alternative hooks, and raw guitar energy (akin to {artists})."
+            },
+            {
+                "id": "electronic_synth",
+                "name": "Electronic & Psytrance",
+                "icon": "fa-bolt",
+                "keywords": ["electronic", "psytrance", "trance", "synthwave", "edm", "techno", "ambient", "goa", "electro", "drum and bass"],
+                "guidance_template": "Focus specifically on driving Electronic beats, Psytrance basslines, and hypnotic synth soundscapes (akin to {artists})."
+            },
+            {
+                "id": "blues_roots",
+                "name": "Blues & Roots Rock",
+                "icon": "fa-fire",
+                "keywords": ["blues", "blues rock", "southern rock", "roots rock", "delta blues", "rockabilly", "rock & roll", "rock and roll"],
+                "guidance_template": "Focus specifically on gritty Blues-Rock, stomp-and-clap grooves, and swaggering fuzz guitars (akin to {artists})."
+            },
+            {
+                "id": "soul_funk_rnb",
+                "name": "Soul, Funk & R&B",
+                "icon": "fa-record-vinyl",
+                "keywords": ["soul", "funk", "rnb", "r&b", "motown", "disco", "funk rock", "neo-soul"],
+                "guidance_template": "Focus specifically on groovy Soul, infectious Funk rhythms, and silky R&B melodies (akin to {artists})."
+            },
+            {
+                "id": "pop_vocal",
+                "name": "Pop & Dance-Pop",
+                "icon": "fa-sparkles",
+                "keywords": ["pop", "dance-pop", "synthpop", "europop", "power pop", "electropop"],
+                "guidance_template": "Focus specifically on catchy Pop anthems, crisp modern production, and infectious vocal hooks (akin to {artists})."
+            },
+            {
+                "id": "singer_songwriter",
+                "name": "Singer-Songwriter & Acoustic",
+                "icon": "fa-feather-pointed",
+                "keywords": ["singer-songwriter", "acoustic", "folk", "americana", "ballad", "chanson"],
+                "guidance_template": "Focus specifically on intimate Singer-Songwriter craft, rich lyrical storytelling, and acoustic warmth (akin to {artists})."
+            },
+            {
+                "id": "hiphop_rap",
+                "name": "Hip-Hop & Rap",
+                "icon": "fa-microphone-lines",
+                "keywords": ["hip-hop", "rap", "boom bap", "trap", "gangsta rap", "east coast hip hop", "west coast hip hop"],
+                "guidance_template": "Focus specifically on authentic Hip-Hop, lyrical flows, and classic boom-bap or modern beats (akin to {artists})."
+            },
+            {
+                "id": "soundtrack_ambient",
+                "name": "Soundtrack & Cinematic",
+                "icon": "fa-film",
+                "keywords": ["soundtrack", "cinematic", "score", "ambient", "composers", "orchestral", "film score"],
+                "guidance_template": "Focus specifically on immersive Cinematic scores, atmospheric soundtracks, and modern orchestral compositions (akin to {artists})."
+            }
+        ]
+
+        style_artists = defaultdict(lambda: Counter())
+        style_track_counts = Counter()
+
+        try:
+            conn = sqlite3.connect(db_path)
+            c = conn.cursor()
+            c.execute('''
+                SELECT artist, genre, count(*) as track_count
+                FROM items
+                WHERE artist != '' AND artist NOT LIKE '%Various Artists%' AND genre IS NOT NULL AND genre != ''
+                GROUP BY artist, genre
+                ORDER BY track_count DESC
+            ''')
+            rows = c.fetchall()
+            conn.close()
+
+            for artist, genre_str, count in rows:
+                genre_lower = (genre_str or "").lower()
+                parts = [p.strip() for p in genre_lower.replace('/', ',').replace(';', ',').split(',') if p.strip()]
+                for tax in STYLE_TAXONOMY:
+                    weight = 0
+                    for idx, p in enumerate(parts):
+                        for kw in tax["keywords"]:
+                            if kw == p:
+                                weight = max(weight, 3 if idx == 0 else (2 if idx <= 2 else 1))
+                            elif len(kw) > 4 and kw in p:
+                                weight = max(weight, 2 if idx == 0 else 1)
+                    if weight > 0:
+                        style_track_counts[tax["id"]] += count
+                        style_artists[tax["id"]][artist] += (count * weight)
+        except Exception as e:
+            logger.error(f"Error building dynamic styles: {e}")
+
+        results = [
+            {
+                "id": "all",
+                "name": "Complete Library Mix",
+                "icon": "fa-music",
+                "artists_preview": "",
+                "guidance": "Draw inspiration across the user's complete eclectic library profile."
+            }
+        ]
+
+        dynamic_candidates = []
+        for tax in STYLE_TAXONOMY:
+            sid = tax["id"]
+            total_tracks = style_track_counts[sid]
+            if total_tracks >= 20:
+                top_artists = [a for a, _ in style_artists[sid].most_common(3)]
+                artists_str = " / ".join(top_artists)
+                dynamic_candidates.append({
+                    "id": sid,
+                    "name": tax["name"],
+                    "icon": tax["icon"],
+                    "artists_preview": f"({artists_str})" if artists_str else "",
+                    "guidance": tax["guidance_template"].format(artists=artists_str or tax["name"]),
+                    "track_count": total_tracks
+                })
+
+        dynamic_candidates.sort(key=lambda x: x.get("track_count", 0), reverse=True)
+
+        wildcard = {
+            "id": "wildcard",
+            "name": "Wildcard / Hidden Gems",
+            "icon": "fa-dice",
+            "artists_preview": "",
+            "guidance": "Focus on hidden gems, indie breakouts, or surprising genre crossover artists that complement the eclectic vibe of this library."
+        }
+
+        return results + dynamic_candidates + [wildcard]
+
+    def get_taste_profile(self, top_n: int = 40, include_all: bool = True) -> Dict[str, Any]:
+        """Extract top artists, album count, and genres from Beets DB, optionally including all library artists."""
         db_path = os.path.join(self.beets_dir, "library.db")
         if not os.path.exists(db_path):
             alt_db = os.path.join(self.music_dir, "library.db")
@@ -1740,6 +1892,7 @@ paths:
                 db_path = alt_db
 
         top_artists = []
+        all_artists = []
         total_tracks = 0
         total_artists = 0
 
@@ -1751,6 +1904,20 @@ paths:
             if row:
                 total_tracks = row[0]
                 total_artists = row[1]
+
+            if include_all:
+                c.execute("""
+                    SELECT artist, count(*) as track_count
+                    FROM items
+                    WHERE artist != '' AND artist NOT LIKE '%Various Artists%'
+                    GROUP BY artist
+                    ORDER BY track_count DESC
+                """)
+                for r in c.fetchall():
+                    all_artists.append({
+                        "artist": r[0],
+                        "track_count": r[1]
+                    })
 
             c.execute("""
                 SELECT artist, count(*) as track_count, GROUP_CONCAT(DISTINCT album) as albums
@@ -1772,10 +1939,14 @@ paths:
         except Exception as e:
             logger.error(f"Error querying taste profile: {e}")
 
+        dynamic_styles = self.get_dynamic_style_focuses()
+
         return {
             "total_tracks": total_tracks,
             "total_artists": total_artists,
-            "top_artists": top_artists
+            "top_artists": top_artists,
+            "all_artists": all_artists,
+            "dynamic_styles": dynamic_styles
         }
 
     async def get_ollama_status(self) -> Dict[str, Any]:
@@ -1809,16 +1980,20 @@ paths:
         prompt: str = "",
         model: Optional[str] = None,
         preset: Optional[str] = None,
-        count: int = 6
+        count: int = 6,
+        anchor_artists: Optional[List[str]] = None,
+        custom_guidance: Optional[str] = None
     ) -> Dict[str, Any]:
         """Generate music recommendations using local Ollama model."""
         target_model = model or self.ollama_default_model
-        taste = self.get_taste_profile(top_n=35)
+        taste = self.get_taste_profile(top_n=35, include_all=False)
 
         top_artists_str = ", ".join([f"{a['artist']} ({a['track_count']} tracks)" for a in taste.get("top_artists", [])[:25]])
 
         preset_guidance = ""
-        if preset == "narrative":
+        if custom_guidance and custom_guidance.strip():
+            preset_guidance = custom_guidance.strip()
+        elif preset == "narrative":
             preset_guidance = "Focus specifically on fast-paced, high-energy narrative indie rock, animated punk-pop, and witty storytelling (akin to Rare Americans, Good Kid, Bug Hunter, Brick + Mortar)."
         elif preset == "blues_swagger":
             preset_guidance = "Focus specifically on dirty blues-rock, stomping garage rock, and swaggering fuzz riffs (akin to The Heavy, Royal Blood, The Black Keys, Jack White, Eagles of Death Metal)."
@@ -1828,6 +2003,17 @@ paths:
             preset_guidance = "Focus specifically on classic, progressive, and roots rock masterclasses (akin to Pink Floyd, Fleetwood Mac, Dire Straits)."
         elif preset == "wildcard":
             preset_guidance = "Focus on hidden gems, indie breakouts, or surprising genre crossover artists that complement the eclectic vibe of this library."
+
+        anchor_guidance = ""
+        if anchor_artists and len(anchor_artists) > 0:
+            clean_anchors = [a.strip() for a in anchor_artists if a and a.strip()][:10]
+            if clean_anchors:
+                anchor_guidance = (
+                    f"CRITICAL ANCHOR ARTIST FOCUS:\n"
+                    f"The user has explicitly selected these anchor artists from their library to guide this recommendation: {', '.join(clean_anchors)}.\n"
+                    f"Generate recommendations with strong musical kinship, similar songwriting, instrumentation, mood, or energy to these specific anchor artists. "
+                    f"DO NOT recommend any of these anchor artists or artists already in the user's library.\n\n"
+                )
 
         user_custom = f"Additional User Guidance: {prompt}" if prompt else ""
 
@@ -1866,6 +2052,7 @@ paths:
             f"User Music Library Profile:\n"
             f"- Total cataloged tracks: {taste.get('total_tracks', 0)}\n"
             f"- Top artists currently in library: {top_artists_str}\n\n"
+            f"{anchor_guidance}"
             f"{preset_guidance}\n"
             f"{user_custom}\n\n"
             f"Generate {count} outstanding artist recommendations in valid JSON format now."
@@ -1922,6 +2109,7 @@ paths:
                 "host": self.ollama_host,
                 "model": target_model,
                 "preset": preset,
+                "anchor_artists": anchor_artists or [],
                 "recommendations": recommendations,
                 "taste_summary": {
                     "total_tracks": taste.get("total_tracks"),

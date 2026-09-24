@@ -929,8 +929,13 @@ function initManualUpload() {
 // AI RECOMMENDATIONS & OLLAMA SERVER MANAGEMENT MODULE
 // ============================================================================
 let activePreset = "all";
+let activeGuidance = "";
 let currentRecommendations = [];
 let knownOllamaServers = [];
+let allAnchorArtists = [];
+let selectedAnchorArtists = new Set();
+let showAllAnchors = false;
+let dynamicStylePresets = [];
 
 async function initAIRecommendations() {
     await loadOllamaServers();
@@ -962,15 +967,52 @@ async function initAIRecommendations() {
         btnRemove.addEventListener("click", removeCurrentOllamaServer);
     }
 
-    // Wire up preset buttons
-    const presetBtns = document.querySelectorAll(".btn-preset");
-    presetBtns.forEach(btn => {
-        btn.addEventListener("click", () => {
-            presetBtns.forEach(b => b.classList.remove("active"));
-            btn.classList.add("active");
-            activePreset = btn.dataset.preset;
+    // Anchor search input
+    const anchorSearch = document.getElementById("anchor-artist-search");
+    if (anchorSearch) {
+        anchorSearch.addEventListener("input", () => {
+            renderAnchorChips();
         });
-    });
+    }
+
+    const btnClearSearch = document.getElementById("btn-clear-anchor-search");
+    if (btnClearSearch) {
+        btnClearSearch.addEventListener("click", () => {
+            if (anchorSearch) anchorSearch.value = "";
+            renderAnchorChips();
+        });
+    }
+
+    // Toggle all anchor artists button
+    const btnToggleAnchors = document.getElementById("btn-toggle-all-anchors");
+    if (btnToggleAnchors) {
+        btnToggleAnchors.addEventListener("click", () => {
+            showAllAnchors = !showAllAnchors;
+            updateToggleAnchorsBtn();
+            renderAnchorChips();
+        });
+    }
+
+    // Clear selected anchor artists button
+    const btnClearAnchors = document.getElementById("btn-clear-selected-anchors");
+    if (btnClearAnchors) {
+        btnClearAnchors.addEventListener("click", () => {
+            selectedAnchorArtists.clear();
+            renderAnchorChips();
+            updateSelectedAnchorsUI();
+        });
+    }
+
+    // Refresh dynamic styles button
+    const btnRefreshStyles = document.getElementById("btn-refresh-styles");
+    if (btnRefreshStyles) {
+        btnRefreshStyles.addEventListener("click", async () => {
+            btnRefreshStyles.innerHTML = `<i class="fa-solid fa-arrows-rotate fa-spin"></i> Refreshing...`;
+            await refreshAITasteProfile();
+            btnRefreshStyles.innerHTML = `<i class="fa-solid fa-arrows-rotate"></i> Refresh Styles`;
+            showToast("Library styles refreshed from current catalog!", "info");
+        });
+    }
 
     // Wire up generate button (ONCE)
     const btnGen = document.getElementById("btn-generate-recs");
@@ -1165,22 +1207,196 @@ async function removeCurrentOllamaServer() {
 async function refreshAITasteProfile() {
     const chipsContainer = document.getElementById("profile-artist-chips");
     try {
-        const res = await fetch("/api/ai/taste-profile");
+        const res = await fetch("/api/ai/taste-profile?include_all=true");
         const data = await res.json();
 
-        if (data.top_artists && data.top_artists.length > 0) {
-            chipsContainer.innerHTML = data.top_artists.slice(0, 18).map(a => `
-                <span class="taste-chip">
-                    <strong>${escapeHtml(a.artist)}</strong>
-                    <span class="chip-count">${a.track_count}</span>
-                </span>
-            `).join("");
-        } else {
-            chipsContainer.innerHTML = `<span class="text-muted">No library artists cataloged yet. Run a library scan!</span>`;
+        allAnchorArtists = data.all_artists && data.all_artists.length > 0 ? data.all_artists : (data.top_artists || []);
+        
+        updateToggleAnchorsBtn();
+        renderAnchorChips();
+        updateSelectedAnchorsUI();
+
+        if (data.dynamic_styles && data.dynamic_styles.length > 0) {
+            renderDynamicStyles(data.dynamic_styles);
         }
     } catch (e) {
-        chipsContainer.innerHTML = `<span class="text-muted">Could not load taste profile.</span>`;
+        if (chipsContainer) {
+            chipsContainer.innerHTML = `<span class="text-muted">Could not load taste profile.</span>`;
+        }
     }
+}
+
+function renderAnchorChips() {
+    const chipsContainer = document.getElementById("profile-artist-chips");
+    const containerWrap = document.getElementById("profile-chips-container");
+    const searchInput = document.getElementById("anchor-artist-search");
+    const clearBtn = document.getElementById("btn-clear-anchor-search");
+    const countSpan = document.getElementById("anchor-artist-count");
+    if (!chipsContainer) return;
+
+    const query = (searchInput?.value || "").trim().toLowerCase();
+    if (clearBtn) {
+        clearBtn.style.display = query ? "inline-flex" : "none";
+    }
+
+    if (countSpan && allAnchorArtists.length > 0) {
+        countSpan.textContent = allAnchorArtists.length.toLocaleString();
+    }
+
+    let displayed = allAnchorArtists;
+    let isFiltered = false;
+
+    if (query) {
+        isFiltered = true;
+        displayed = allAnchorArtists.filter(a => (a.artist || "").toLowerCase().includes(query));
+    } else if (!showAllAnchors) {
+        displayed = allAnchorArtists.slice(0, 36);
+    }
+
+    if (containerWrap) {
+        if (showAllAnchors || isFiltered) {
+            containerWrap.classList.add("expanded");
+        } else {
+            containerWrap.classList.remove("expanded");
+        }
+    }
+
+    if (!displayed || displayed.length === 0) {
+        chipsContainer.innerHTML = query 
+            ? `<span class="text-muted text-xs"><i class="fa-solid fa-magnifying-glass"></i> No library artists matching "${escapeHtml(query)}"</span>`
+            : `<span class="text-muted text-xs">No library artists cataloged yet. Run a library scan!</span>`;
+        return;
+    }
+
+    let chipsHtml = displayed.map(a => {
+        const isSelected = selectedAnchorArtists.has(a.artist);
+        return `
+            <span class="taste-chip ${isSelected ? 'selected' : ''}" data-artist="${escapeAttr(a.artist)}" title="Click to ${isSelected ? 'remove from' : 'focus as'} anchor artist">
+                ${isSelected ? '<i class="fa-solid fa-check"></i> ' : ''}
+                <strong>${escapeHtml(a.artist)}</strong>
+                <span class="chip-count">${a.track_count}</span>
+            </span>
+        `;
+    }).join("");
+
+    if (!isFiltered && !showAllAnchors && allAnchorArtists.length > 36) {
+        const remaining = allAnchorArtists.length - 36;
+        chipsHtml += `
+            <span class="taste-chip chip-more" id="chip-show-more-anchors" title="Expand to show all ${allAnchorArtists.length.toLocaleString()} artists">
+                <i class="fa-solid fa-ellipsis"></i>
+                <strong>+${remaining.toLocaleString()} more</strong>
+            </span>
+        `;
+    }
+
+    chipsContainer.innerHTML = chipsHtml;
+
+    // Attach click events on chips
+    chipsContainer.querySelectorAll(".taste-chip[data-artist]").forEach(chip => {
+        chip.addEventListener("click", () => {
+            const artistName = chip.dataset.artist;
+            if (selectedAnchorArtists.has(artistName)) {
+                selectedAnchorArtists.delete(artistName);
+            } else {
+                selectedAnchorArtists.add(artistName);
+            }
+            renderAnchorChips();
+            updateSelectedAnchorsUI();
+        });
+    });
+
+    const moreChip = document.getElementById("chip-show-more-anchors");
+    if (moreChip) {
+        moreChip.addEventListener("click", () => {
+            showAllAnchors = true;
+            updateToggleAnchorsBtn();
+            renderAnchorChips();
+        });
+    }
+}
+
+function updateToggleAnchorsBtn() {
+    const btn = document.getElementById("btn-toggle-all-anchors");
+    const label = document.getElementById("toggle-anchors-label");
+    if (!btn || !label) return;
+
+    if (showAllAnchors) {
+        btn.innerHTML = `<i class="fa-solid fa-compress"></i> <span id="toggle-anchors-label">Show Top 36</span>`;
+    } else {
+        const total = allAnchorArtists.length ? ` (${allAnchorArtists.length.toLocaleString()})` : '';
+        btn.innerHTML = `<i class="fa-solid fa-expand"></i> <span id="toggle-anchors-label">Show All${total}</span>`;
+    }
+}
+
+function updateSelectedAnchorsUI() {
+    const bar = document.getElementById("selected-anchors-bar");
+    const list = document.getElementById("selected-anchors-list");
+    if (!bar || !list) return;
+
+    if (selectedAnchorArtists.size === 0) {
+        bar.style.display = "none";
+        list.innerHTML = "";
+        return;
+    }
+
+    bar.style.display = "flex";
+    list.innerHTML = Array.from(selectedAnchorArtists).map(artist => `
+        <span class="selected-anchor-tag">
+            <i class="fa-solid fa-anchor"></i> ${escapeHtml(artist)}
+            <button type="button" class="btn-remove-tag" data-artist="${escapeAttr(artist)}" title="Remove"><i class="fa-solid fa-xmark"></i></button>
+        </span>
+    `).join("");
+
+    list.querySelectorAll(".btn-remove-tag").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const artist = btn.dataset.artist;
+            selectedAnchorArtists.delete(artist);
+            renderAnchorChips();
+            updateSelectedAnchorsUI();
+        });
+    });
+}
+
+function renderDynamicStyles(styles) {
+    dynamicStylePresets = styles || [];
+    const container = document.getElementById("preset-pills-container");
+    if (!container) return;
+
+    if (dynamicStylePresets.length === 0) {
+        container.innerHTML = `<button class="btn-preset active" data-preset="all"><i class="fa-solid fa-music"></i> Complete Library Mix</button>`;
+        return;
+    }
+
+    // Check if current activePreset still exists, otherwise fallback to "all"
+    const hasActive = dynamicStylePresets.some(s => s.id === activePreset);
+    if (!hasActive) {
+        activePreset = "all";
+        activeGuidance = "";
+    } else {
+        const curr = dynamicStylePresets.find(s => s.id === activePreset);
+        if (curr) activeGuidance = curr.guidance || "";
+    }
+
+    container.innerHTML = dynamicStylePresets.map(s => {
+        const isActive = s.id === activePreset;
+        return `
+            <button type="button" class="btn-preset ${isActive ? 'active' : ''}" data-preset="${escapeAttr(s.id)}" data-guidance="${escapeAttr(s.guidance || '')}" title="${escapeAttr(s.guidance || s.name)}">
+                <i class="fa-solid ${escapeAttr(s.icon || 'fa-music')}"></i>
+                <span class="preset-name">${escapeHtml(s.name)}</span>
+                ${s.artists_preview ? `<span class="preset-artists-preview">${escapeHtml(s.artists_preview)}</span>` : ''}
+            </button>
+        `;
+    }).join("");
+
+    container.querySelectorAll(".btn-preset").forEach(btn => {
+        btn.addEventListener("click", () => {
+            container.querySelectorAll(".btn-preset").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            activePreset = btn.dataset.preset;
+            activeGuidance = btn.dataset.guidance || "";
+        });
+    });
 }
 
 async function generateRecommendations() {
@@ -1209,7 +1425,9 @@ async function generateRecommendations() {
             body: JSON.stringify({
                 model: selectedModel,
                 preset: activePreset,
+                custom_guidance: activeGuidance,
                 prompt: customPrompt,
+                anchor_artists: Array.from(selectedAnchorArtists),
                 count: 6
             })
         });

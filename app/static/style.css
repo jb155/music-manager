@@ -1636,155 +1636,307 @@ body {
 
 
 .taste-profile-banner {
-
     background: rgba(255, 255, 255, 0.02);
-
-    border: 1px solid rgba(255, 255, 255, 0.05);
-
+    border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 12px;
-
     padding: 12px 16px;
-
 }
 
-
+.taste-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+}
 
 .taste-title {
-
-    font-size: 12px;
-
+    font-size: 13px;
     font-weight: 600;
-
-    text-transform: uppercase;
-
-    letter-spacing: 0.5px;
-
     color: var(--text-muted);
-
-    margin-bottom: 8px;
-
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 0;
 }
 
+.taste-hint {
+    font-size: 11px;
+    font-weight: normal;
+    color: var(--text-muted);
+    opacity: 0.7;
+}
 
+.taste-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.taste-search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.taste-search-wrap i.fa-magnifying-glass {
+    position: absolute;
+    left: 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    pointer-events: none;
+}
+
+.taste-search-wrap input.input-xs {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    color: var(--text-main);
+    font-size: 11px;
+    padding: 4px 24px 4px 26px;
+    width: 170px;
+    transition: all 0.2s ease;
+}
+
+.taste-search-wrap input.input-xs:focus {
+    width: 220px;
+    border-color: var(--primary);
+    background: rgba(0, 0, 0, 0.4);
+    outline: none;
+}
+
+.btn-xs-clear {
+    position: absolute;
+    right: 6px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 10px;
+    padding: 2px;
+}
+
+.btn-xs-clear:hover {
+    color: #fff;
+}
+
+.btn-xs {
+    padding: 3px 8px;
+    font-size: 11px;
+    border-radius: 6px;
+}
+
+.profile-chips-container {
+    max-height: 120px;
+    overflow-y: auto;
+    padding-right: 4px;
+    transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(139, 92, 246, 0.3) rgba(0, 0, 0, 0.2);
+}
+
+.profile-chips-container.expanded {
+    max-height: 290px;
+}
+
+.profile-chips-container::-webkit-scrollbar {
+    width: 5px;
+}
+
+.profile-chips-container::-webkit-scrollbar-thumb {
+    background: rgba(139, 92, 246, 0.3);
+    border-radius: 4px;
+}
 
 .profile-chips {
-
     display: flex;
-
     flex-wrap: wrap;
-
     gap: 8px;
-
 }
-
-
 
 .taste-chip {
-
     display: inline-flex;
-
     align-items: center;
-
     gap: 6px;
-
     background: rgba(139, 92, 246, 0.1);
-
     border: 1px solid rgba(139, 92, 246, 0.25);
-
     color: #ddd6fe;
-
     padding: 4px 10px;
-
     border-radius: 14px;
-
     font-size: 12px;
-
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
 }
 
+.taste-chip:hover {
+    background: rgba(139, 92, 246, 0.22);
+    border-color: rgba(139, 92, 246, 0.6);
+    color: #fff;
+    transform: translateY(-1px);
+}
 
+.taste-chip.selected {
+    background: rgba(139, 92, 246, 0.45);
+    border-color: #a78bfa;
+    color: #ffffff;
+    box-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
+    font-weight: 600;
+}
+
+.taste-chip.chip-more {
+    border-style: dashed;
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: var(--text-muted);
+}
+
+.taste-chip.chip-more:hover {
+    border-color: var(--primary);
+    color: #fff;
+    background: rgba(139, 92, 246, 0.15);
+}
 
 .chip-count {
-
     background: rgba(139, 92, 246, 0.25);
-
     color: #fff;
-
     padding: 1px 5px;
-
     border-radius: 8px;
-
     font-size: 10px;
-
     font-weight: bold;
-
 }
 
+.taste-chip.selected .chip-count {
+    background: rgba(255, 255, 255, 0.25);
+}
 
+/* Selected Anchors Focus Bar */
+.selected-anchors-bar {
+    background: rgba(139, 92, 246, 0.12);
+    border: 1px dashed rgba(139, 92, 246, 0.4);
+    border-radius: 8px;
+    padding: 6px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    animation: fadeIn 0.2s ease;
+}
+
+.selected-anchors-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.selected-anchor-tag {
+    background: rgba(139, 92, 246, 0.35);
+    border: 1px solid rgba(139, 92, 246, 0.6);
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.selected-anchor-tag button.btn-remove-tag {
+    background: none;
+    border: none;
+    color: #ddd6fe;
+    cursor: pointer;
+    font-size: 10px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+}
+
+.selected-anchor-tag button.btn-remove-tag:hover {
+    color: #ff6b6b;
+}
+
+.btn-text-xs {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
+}
+
+.btn-text-xs:hover {
+    color: #ff6b6b;
+}
+
+/* Dynamic Preset Pills */
+.preset-label-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.btn-icon-xs {
+    background: none;
+    border: none;
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: color 0.2s ease;
+}
+
+.btn-icon-xs:hover {
+    color: var(--primary-light);
+}
 
 .preset-pills {
-
     display: flex;
-
     flex-wrap: wrap;
-
     gap: 8px;
-
 }
-
-
 
 .btn-preset {
-
     background: rgba(255, 255, 255, 0.04);
-
     border: 1px solid var(--bg-card-border);
-
     color: var(--text-muted);
-
     padding: 8px 14px;
-
     border-radius: 20px;
-
     font-size: 12px;
-
     font-weight: 500;
-
     cursor: pointer;
-
     display: inline-flex;
-
     align-items: center;
-
     gap: 6px;
-
     transition: all 0.2s ease;
-
 }
-
-
 
 .btn-preset:hover {
-
     background: rgba(255, 255, 255, 0.08);
-
     color: var(--text-main);
-
     border-color: rgba(255, 255, 255, 0.15);
-
 }
 
-
-
 .btn-preset.active {
-
     background: linear-gradient(135deg, rgba(139, 92, 246, 0.3), rgba(6, 182, 212, 0.2));
-
     border-color: var(--primary);
-
     color: #fff;
-
     box-shadow: 0 0 12px rgba(139, 92, 246, 0.25);
+}
 
+.preset-artists-preview {
+    font-size: 11px;
+    opacity: 0.6;
+    font-weight: normal;
+    margin-left: 2px;
+}
+
+.btn-preset.active .preset-artists-preview {
+    opacity: 0.85;
+    color: #fff;
 }
 
 
