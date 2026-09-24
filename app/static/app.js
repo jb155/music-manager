@@ -4216,7 +4216,6 @@ function resetSlideLockout() {
     const text = document.getElementById("slide-lockout-text");
     const icon = document.getElementById("slide-lockout-icon");
     const btnConfirm = document.getElementById("btn-confirm-delete-unlocked");
-    const btnFooter = document.getElementById("btn-confirm-delete-footer");
 
     if (track) {
         track.classList.remove("unlocked");
@@ -4239,11 +4238,6 @@ function resetSlideLockout() {
         btnConfirm.style.display = "none";
         btnConfirm.disabled = false;
         btnConfirm.innerHTML = `<i class="fa-solid fa-trash-can"></i> Permanently Delete Selected Items`;
-    }
-    if (btnFooter) {
-        btnFooter.style.display = "none";
-        btnFooter.disabled = false;
-        btnFooter.innerHTML = `<i class="fa-solid fa-trash-can"></i> Permanently Delete`;
     }
 }
 
@@ -4378,7 +4372,6 @@ function renderDeleteImpactUI() {
     }
 
     // If all tracks are spared/kept, disable deletion lockout
-    const btnFooter = document.getElementById("btn-confirm-delete-footer");
     if (activeTracksCount === 0) {
         if (trackLock) {
             trackLock.style.display = "flex";
@@ -4391,9 +4384,6 @@ function renderDeleteImpactUI() {
         if (confirmBtn) {
             confirmBtn.classList.remove("revealed");
             confirmBtn.style.display = "none";
-        }
-        if (btnFooter) {
-            btnFooter.style.display = "none";
         }
     } else {
         if (!isSlideUnlocked) {
@@ -4408,9 +4398,6 @@ function renderDeleteImpactUI() {
             if (confirmBtn) {
                 confirmBtn.classList.remove("revealed");
                 confirmBtn.style.display = "none";
-            }
-            if (btnFooter) {
-                btnFooter.style.display = "none";
             }
         }
     }
@@ -4486,7 +4473,6 @@ function initSlideLockout() {
     const text = document.getElementById("slide-lockout-text");
     const icon = document.getElementById("slide-lockout-icon");
     const btnConfirm = document.getElementById("btn-confirm-delete-unlocked");
-    const btnFooter = document.getElementById("btn-confirm-delete-footer");
     const modal = document.getElementById("delete-impact-modal");
     const btnClose = document.getElementById("btn-close-delete-modal");
     const btnCancel = document.getElementById("btn-cancel-delete");
@@ -4567,15 +4553,12 @@ function initSlideLockout() {
             if (icon) icon.className = "fa-solid fa-lock-open";
             if (text) text.innerHTML = `<i class="fa-solid fa-check"></i> Unlocked for permanent deletion`;
 
-            // Seamless in-place morph: hide track and display delete confirmation buttons
+            // Seamless in-place morph: hide track and display delete confirmation button
             setTimeout(() => {
                 if (track) track.style.display = "none";
                 if (btnConfirm) {
                     btnConfirm.style.display = "flex";
                     btnConfirm.classList.add("revealed");
-                }
-                if (btnFooter) {
-                    btnFooter.style.display = "inline-flex";
                 }
             }, 180);
         } else {
@@ -4622,10 +4605,6 @@ function initSlideLockout() {
             btnConfirm.disabled = true;
             btnConfirm.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i> Permanently Deleting ${tracksToDelete.length} Songs...`;
         }
-        if (btnFooter) {
-            btnFooter.disabled = true;
-            btnFooter.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i> Deleting...`;
-        }
 
         try {
             const res = await fetch("/api/library/delete", {
@@ -4658,10 +4637,6 @@ function initSlideLockout() {
                     btnConfirm.disabled = false;
                     btnConfirm.innerHTML = `<i class="fa-solid fa-trash-can"></i> Permanently Delete Selected Items`;
                 }
-                if (btnFooter) {
-                    btnFooter.disabled = false;
-                    btnFooter.innerHTML = `<i class="fa-solid fa-trash-can"></i> Permanently Delete`;
-                }
             }
         } catch (err) {
             showToast("Network error executing deletion: " + err.message, "error");
@@ -4669,18 +4644,11 @@ function initSlideLockout() {
                 btnConfirm.disabled = false;
                 btnConfirm.innerHTML = `<i class="fa-solid fa-trash-can"></i> Permanently Delete Selected Items`;
             }
-            if (btnFooter) {
-                btnFooter.disabled = false;
-                btnFooter.innerHTML = `<i class="fa-solid fa-trash-can"></i> Permanently Delete`;
-            }
         }
     }
 
     if (btnConfirm) {
         btnConfirm.addEventListener("click", executeDeletion);
-    }
-    if (btnFooter) {
-        btnFooter.addEventListener("click", executeDeletion);
     }
 }
 
