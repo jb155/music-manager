@@ -16,7 +16,7 @@ import urllib.error
 import urllib.parse
 import difflib
 from collections import defaultdict, Counter
-from typing import AsyncGenerator, List, Dict, Any, Optional, Tuple, Union
+from typing import AsyncGenerator, List, Dict, Any, Optional, Tuple, Union, Set
 
 # Ensure HOME and XDG environment variables point to a writable config directory
 # to prevent SpotDL, Spotipy, and yt-dlp from failing with PermissionError when running as unprivileged user
@@ -1975,6 +1975,231 @@ paths:
             "error": error_msg
         }
 
+    def get_library_artist_names(self) -> Set[str]:
+        """Return a set of lowercase artist and albumartist names in the library."""
+        db_path = os.path.join(self.beets_dir, "library.db")
+        if not os.path.exists(db_path):
+            alt_db = os.path.join(self.music_dir, "library.db")
+            if os.path.exists(alt_db):
+                db_path = alt_db
+        if not os.path.exists(db_path):
+            return set()
+        try:
+            conn = sqlite3.connect(db_path)
+            c = conn.cursor()
+            c.execute("SELECT DISTINCT artist FROM items WHERE artist IS NOT NULL AND artist != ''")
+            artists = {row[0].strip().lower() for row in c.fetchall() if row[0] and row[0].strip()}
+            c.execute("SELECT DISTINCT albumartist FROM albums WHERE albumartist IS NOT NULL AND albumartist != ''")
+            for row in c.fetchall():
+                if row[0] and row[0].strip():
+                    artists.add(row[0].strip().lower())
+            conn.close()
+            return artists
+        except Exception as e:
+            logger.error(f"Error querying library artists: {e}")
+            return set()
+
+    async def generate_graph_recommendations(
+        self,
+        prompt: str = "",
+        preset: Optional[str] = None,
+        count: int = 6,
+        anchor_artists: Optional[List[str]] = None,
+        custom_guidance: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Fast artist & album discovery grounded in actual Beets library via Deezer Knowledge Graph."""
+        taste = self.get_taste_profile(top_n=35, include_all=False)
+        lib_artists_set = self.get_library_artist_names()
+
+        # 1. Determine anchor artists
+        anchors = [a.strip() for a in (anchor_artists or []) if a and a.strip()]
+
+        if not anchors and preset and preset != "all":
+            # Match style preset to library artists
+            styles = self.get_dynamic_style_focuses()
+            for s in styles:
+                if s.get("id") == preset:
+                    preview = s.get("artists_preview", "").strip("()").split("/")
+                    anchors = [p.strip() for p in preview if p.strip()]
+                    break
+
+        if not anchors:
+            top_taste = [a["artist"] for a in taste.get("top_artists", []) if a.get("artist")]
+            if top_taste:
+                anchors = random.sample(top_taste, min(len(top_taste), 4))
+            else:
+                anchors = ["Queen", "Pink Floyd"]
+
+        if prompt and prompt.strip():
+            anchors.insert(0, prompt.strip())
+
+        await self.broadcast_log(f"\n[Recommendations] Discovering music via Knowledge Graph for anchors: {', '.join(anchors)}...\n")
+
+        loop = asyncio.get_event_loop()
+
+        def fetch_json(url: str):
+            req = urllib.request.Request(url, headers={"User-Agent": "OMV-MusicManager/1.5"})
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return json.loads(r.read().decode("utf-8"))
+
+        async def async_fetch_json(url: str):
+            try:
+                return await loop.run_in_executor(None, lambda: fetch_json(url))
+            except Exception as e:
+                logger.debug(f"Failed fetching {url}: {e}")
+                return {}
+
+        # 2. Search anchors on Deezer concurrently
+        search_tasks = [
+            async_fetch_json(f"https://api.deezer.com/search/artist?q={urllib.parse.quote(a)}")
+            for a in anchors[:6]
+        ]
+        search_results = await asyncio.gather(*search_tasks)
+
+        best_anchors = []
+        for a_name, s_data in zip(anchors[:6], search_results):
+            items = s_data.get("data", [])
+            if items:
+                best = max(items, key=lambda x: x.get("nb_fan", 0))
+                best_anchors.append(best)
+
+        if not best_anchors:
+            fallback_res = await async_fetch_json("https://api.deezer.com/search/artist?q=Rock")
+            if fallback_res.get("data"):
+                best_anchors = fallback_res["data"][:2]
+
+        # 3. Fetch related artists concurrently
+        related_tasks = [
+            async_fetch_json(f"https://api.deezer.com/artist/{b['id']}/related")
+            for b in best_anchors
+        ]
+        related_results = await asyncio.gather(*related_tasks)
+
+        # 4. Filter and aggregate candidate artists
+        candidate_map = {}
+        for b_item, r_data in zip(best_anchors, related_results):
+            b_name = b_item.get("name", "Artist")
+            for rel in r_data.get("data", []):
+                rel_name = rel.get("name", "").strip()
+                if not rel_name:
+                    continue
+                # Exclude if already in user's library
+                if rel_name.lower() in lib_artists_set:
+                    continue
+                # Also exclude anchor artists themselves
+                if any(rel_name.lower() == a.lower() for a in anchors):
+                    continue
+
+                key = rel_name.lower()
+                if key not in candidate_map:
+                    candidate_map[key] = {
+                        "item": rel,
+                        "anchors": [b_name],
+                        "nb_fan": rel.get("nb_fan", 0)
+                    }
+                else:
+                    if b_name not in candidate_map[key]["anchors"]:
+                        candidate_map[key]["anchors"].append(b_name)
+
+        # 4b. 2nd-degree expansion if library already has most 1st-degree related artists
+        if len(candidate_map) < count * 2:
+            second_degree_targets = []
+            for r_data in related_results:
+                for item in r_data.get("data", [])[:5]:
+                    if item.get("id") and item.get("id") not in [t["id"] for t in second_degree_targets]:
+                        second_degree_targets.append(item)
+            if second_degree_targets:
+                second_tasks = [
+                    async_fetch_json(f"https://api.deezer.com/artist/{t['id']}/related")
+                    for t in second_degree_targets[:8]
+                ]
+                second_results = await asyncio.gather(*second_tasks)
+                for t_item, s_res in zip(second_degree_targets[:8], second_results):
+                    t_name = t_item.get("name", "Anchor")
+                    for rel in s_res.get("data", []):
+                        rel_name = rel.get("name", "").strip()
+                        if not rel_name:
+                            continue
+                        if rel_name.lower() in lib_artists_set:
+                            continue
+                        if any(rel_name.lower() == a.lower() for a in anchors):
+                            continue
+                        key = rel_name.lower()
+                        if key not in candidate_map:
+                            candidate_map[key] = {
+                                "item": rel,
+                                "anchors": [t_name],
+                                "nb_fan": rel.get("nb_fan", 0)
+                            }
+                        else:
+                            if t_name not in candidate_map[key]["anchors"]:
+                                candidate_map[key]["anchors"].append(t_name)
+
+        ranked = sorted(
+            candidate_map.values(),
+            key=lambda c: (len(c["anchors"]), c["nb_fan"]),
+            reverse=True
+        )
+
+        selected = ranked[:count]
+
+        # 5. Fetch top tracks concurrently for selected artists
+        top_tasks = [
+            async_fetch_json(f"https://api.deezer.com/artist/{c['item']['id']}/top?limit=3")
+            for c in selected
+        ]
+        top_results = await asyncio.gather(*top_tasks)
+
+        recommendations = []
+        for cand, top_data in zip(selected, top_results):
+            rel = cand["item"]
+            rel_name = rel.get("name", "").strip()
+            anchor_desc = " & ".join(cand["anchors"][:2])
+
+            top_tracks = []
+            album_name = "Definitive Works"
+            for t in top_data.get("data", [])[:3]:
+                title = t.get("title", "").strip()
+                if title:
+                    top_tracks.append({
+                        "title": title,
+                        "search_query": f"{rel_name} - {title}"
+                    })
+                alb = t.get("album", {})
+                if alb and alb.get("title") and album_name == "Definitive Works":
+                    album_name = alb.get("title")
+
+            fan_count = cand["nb_fan"]
+            fans_str = f"{fan_count:,} fans" if fan_count > 0 else "acclaimed catalog"
+            reason = f"Shares strong musical kinship with {anchor_desc} in your library ({fans_str} on Deezer)."
+
+            genre_label = "Curated Discovery"
+            if preset and preset != "all":
+                genre_label = preset.replace("_", " ").title()
+
+            recommendations.append({
+                "artist": rel_name,
+                "genre": genre_label,
+                "similarity": f"For fans of {anchor_desc}",
+                "reason": reason,
+                "recommended_album": album_name,
+                "recommended_tracks": top_tracks
+            })
+
+        await self.broadcast_log(f"[Recommendations] Generated {len(recommendations)} recommendations via Knowledge Graph.\n")
+
+        return {
+            "success": True,
+            "engine": "Deezer & Knowledge Graph",
+            "preset": preset,
+            "anchor_artists": anchors,
+            "recommendations": recommendations,
+            "taste_summary": {
+                "total_tracks": taste.get("total_tracks"),
+                "sample_artists": [a["artist"] for a in taste.get("top_artists", [])[:10]]
+            }
+        }
+
     async def generate_ai_recommendations(
         self,
         prompt: str = "",
@@ -1984,146 +2209,14 @@ paths:
         anchor_artists: Optional[List[str]] = None,
         custom_guidance: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Generate music recommendations using local Ollama model."""
-        target_model = model or self.ollama_default_model
-        taste = self.get_taste_profile(top_n=35, include_all=False)
-
-        top_artists_str = ", ".join([f"{a['artist']} ({a['track_count']} tracks)" for a in taste.get("top_artists", [])[:25]])
-
-        preset_guidance = ""
-        if custom_guidance and custom_guidance.strip():
-            preset_guidance = custom_guidance.strip()
-        elif preset == "narrative":
-            preset_guidance = "Focus specifically on fast-paced, high-energy narrative indie rock, animated punk-pop, and witty storytelling (akin to Rare Americans, Good Kid, Bug Hunter, Brick + Mortar)."
-        elif preset == "blues_swagger":
-            preset_guidance = "Focus specifically on dirty blues-rock, stomping garage rock, and swaggering fuzz riffs (akin to The Heavy, Royal Blood, The Black Keys, Jack White, Eagles of Death Metal)."
-        elif preset == "psytrance":
-            preset_guidance = "Focus specifically on high-energy electronic rock, psytrance, and driving bass rhythms (akin to Infected Mushroom, Mandragora, Venjent)."
-        elif preset == "classic_prog":
-            preset_guidance = "Focus specifically on classic, progressive, and roots rock masterclasses (akin to Pink Floyd, Fleetwood Mac, Dire Straits)."
-        elif preset == "wildcard":
-            preset_guidance = "Focus on hidden gems, indie breakouts, or surprising genre crossover artists that complement the eclectic vibe of this library."
-
-        anchor_guidance = ""
-        if anchor_artists and len(anchor_artists) > 0:
-            clean_anchors = [a.strip() for a in anchor_artists if a and a.strip()][:10]
-            if clean_anchors:
-                anchor_guidance = (
-                    f"CRITICAL ANCHOR ARTIST FOCUS:\n"
-                    f"The user has explicitly selected these anchor artists from their library to guide this recommendation: {', '.join(clean_anchors)}.\n"
-                    f"Generate recommendations with strong musical kinship, similar songwriting, instrumentation, mood, or energy to these specific anchor artists. "
-                    f"DO NOT recommend any of these anchor artists or artists already in the user's library.\n\n"
-                )
-
-        user_custom = f"Additional User Guidance: {prompt}" if prompt else ""
-
-        system_instruction = (
-            "You are an elite music curator, audiophile, and musicologist assistant. "
-            "Your job is to recommend exciting, high-quality music artists that the user DOES NOT already have in their library, "
-            "tailored precisely to their demonstrated taste profile.\n\n"
-            "Rules:\n"
-            f"1. Recommend exactly {count} distinct artists or bands.\n"
-            "2. DO NOT recommend artists already heavily represented in the user's library.\n"
-            "3. For each artist, provide:\n"
-            "   - artist: The exact band / artist name.\n"
-            "   - genre: Specific primary genre(s).\n"
-            "   - similarity: Short connection tag, e.g. 'For fans of Rare Americans & Good Kid'.\n"
-            "   - reason: 1-2 punchy, enthusiastic sentences explaining why they belong in this collection.\n"
-            "   - recommended_album: Their definitive or best starting album.\n"
-            "   - recommended_tracks: A list of 2 or 3 standout songs, each with 'title' and 'search_query' (formatted as 'Artist - Title').\n"
-            "4. Output MUST be ONLY valid JSON adhering to this schema:\n"
-            "{\n"
-            '  "recommendations": [\n'
-            "    {\n"
-            '      "artist": "Artist Name",\n'
-            '      "genre": "Genre",\n'
-            '      "similarity": "For fans of...",\n'
-            '      "reason": "Why you will love them...",\n'
-            '      "recommended_album": "Album Name",\n'
-            '      "recommended_tracks": [\n'
-            '        {"title": "Track Name", "search_query": "Artist Name - Track Name"}\n'
-            "      ]\n"
-            "    }\n"
-            "  ]\n"
-            "}\n"
+        """Generate music recommendations using Deezer & Knowledge Graph grounded in actual library."""
+        return await self.generate_graph_recommendations(
+            prompt=prompt,
+            preset=preset,
+            count=count,
+            anchor_artists=anchor_artists,
+            custom_guidance=custom_guidance
         )
-
-        user_message = (
-            f"User Music Library Profile:\n"
-            f"- Total cataloged tracks: {taste.get('total_tracks', 0)}\n"
-            f"- Top artists currently in library: {top_artists_str}\n\n"
-            f"{anchor_guidance}"
-            f"{preset_guidance}\n"
-            f"{user_custom}\n\n"
-            f"Generate {count} outstanding artist recommendations in valid JSON format now."
-        )
-
-        full_prompt = f"<|im_start|>system\n{system_instruction}<|im_end|>\n<|im_start|>user\n{user_message}<|im_end|>\n<|im_start|>assistant\n"
-
-        await self.broadcast_log(f"\n[AI] Requesting {count} music recommendations from Ollama at {self.ollama_host} ({target_model})...\n")
-
-        payload = {
-            "model": target_model,
-            "prompt": full_prompt,
-            "stream": False
-        }
-
-        data_bytes = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            f"{self.ollama_host}/api/generate",
-            data=data_bytes,
-            headers={"Content-Type": "application/json", "User-Agent": "OMV-MusicManager"}
-        )
-
-        raw_response = ""
-        try:
-            loop = asyncio.get_event_loop()
-            resp_data = await loop.run_in_executor(None, lambda: urllib.request.urlopen(req, timeout=120).read().decode("utf-8"))
-            parsed_resp = json.loads(resp_data)
-            raw_response = parsed_resp.get("response", "")
-        except Exception as e:
-            await self.broadcast_log(f"[AI ERROR] Ollama generation failed: {e}\n")
-            return {"success": False, "error": f"Ollama connection error: {str(e)}"}
-
-        # Extract JSON from LLM output
-        clean_json_str = raw_response.strip()
-        clean_json_str = re.sub(r'<think>.*?</think>', '', clean_json_str, flags=re.DOTALL).strip()
-
-        code_block = re.search(r'```(?:json)?\s*(\{.*\}|\[.*\])\s*```', clean_json_str, re.DOTALL)
-        if code_block:
-            clean_json_str = code_block.group(1).strip()
-        else:
-            brace_match = re.search(r'(\{.*\})', clean_json_str, re.DOTALL)
-            if brace_match:
-                clean_json_str = brace_match.group(1).strip()
-
-        try:
-            recs_data = json.loads(clean_json_str)
-            recommendations = recs_data.get("recommendations", [])
-            if not isinstance(recommendations, list) and isinstance(recs_data, list):
-                recommendations = recs_data
-
-            await self.broadcast_log(f"[AI] Successfully generated {len(recommendations)} recommendations!\n")
-            return {
-                "success": True,
-                "host": self.ollama_host,
-                "model": target_model,
-                "preset": preset,
-                "anchor_artists": anchor_artists or [],
-                "recommendations": recommendations,
-                "taste_summary": {
-                    "total_tracks": taste.get("total_tracks"),
-                    "sample_artists": [a["artist"] for a in taste.get("top_artists", [])[:10]]
-                }
-            }
-        except Exception as e:
-            logger.error(f"Failed to parse LLM JSON: {e}\nRaw output:\n{raw_response}")
-            await self.broadcast_log(f"[AI ERROR] Failed to parse JSON response: {e}\n")
-            return {
-                "success": False,
-                "error": f"JSON parse error: {str(e)}",
-                "raw_text": raw_response
-            }
 
     # =========================================================================
     # GENRE TAGGING & LIBRARY TAXONOMY

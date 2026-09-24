@@ -18,7 +18,7 @@
                 <div class="logo-icon"><i class="fa-solid fa-music"></i></div>
                 <div>
                     <h1>Music Manager</h1>
-                    <span class="version-tag">SpotDL + Beets + Local Ollama AI</span>
+                    <span class="version-tag">SpotDL + Beets</span>
                 </div>
             </div>
             
@@ -44,33 +44,6 @@
             </div>
         </header>
 
-        
-        <!-- Shared Ollama AI Control Bar (accessible across AI Recommendations & Playlist Creator) -->
-        <div class="ollama-control-bar glass-bar" id="ollama-control-bar">
-            <div class="ollama-server-controls">
-                <span class="status-pill" id="ollama-connection-pill"><i class="fa-solid fa-circle-nodes"></i> Checking Ollama...</span>
-                <div class="control-group">
-                    <label for="ollama-server-select"><i class="fa-solid fa-server"></i> Server:</label>
-                    <select id="ollama-server-select" class="select-control" title="Select active Ollama server"></select>
-                </div>
-                <button type="button" class="btn btn-secondary btn-sm" id="btn-scan-ollama" title="Scan local network for running Ollama instances">
-                    <i class="fa-solid fa-satellite-dish"></i> Scan Network
-                </button>
-                <button type="button" class="btn btn-secondary btn-sm" id="btn-add-ollama" title="Manually add Ollama server IP or URL">
-                    <i class="fa-solid fa-plus"></i> Add IP
-                </button>
-                <button type="button" class="btn btn-secondary btn-sm" id="btn-remove-ollama" title="Remove current server from remembered list" style="padding: 6px 9px;">
-                    <i class="fa-solid fa-trash-can"></i>
-                </button>
-            </div>
-            <div class="ollama-model-controls">
-                <div class="control-group">
-                    <label for="ai-model-select"><i class="fa-solid fa-brain"></i> Model:</label>
-                    <select id="ai-model-select" class="select-control" title="Choose AI Model"></select>
-                </div>
-            </div>
-        </div>
-
         <!-- Progress Banner (visible when task running) -->
         <div class="progress-banner" id="progress-banner" style="display: none;">
             <div class="progress-info">
@@ -95,7 +68,7 @@
             <button class="tab-btn active" data-tab="download"><i class="fa-solid fa-cloud-arrow-down"></i> Download</button>
             <button class="tab-btn" data-tab="library"><i class="fa-solid fa-record-vinyl"></i> Library</button>
             <button class="tab-btn" data-tab="playlist"><i class="fa-solid fa-list-ol"></i> Playlist Creator</button>
-            <button class="tab-btn" data-tab="recommendations"><i class="fa-solid fa-wand-magic-sparkles"></i> AI Recommendations</button>
+            <button class="tab-btn" data-tab="recommendations"><i class="fa-solid fa-compass"></i> Recommendations</button>
             <button class="tab-btn" data-tab="missing"><i class="fa-solid fa-magnifying-glass-chart"></i> Missing Tracks <span class="badge" id="missing-badge">0</span></button>
             <button class="tab-btn" data-tab="staging"><i class="fa-solid fa-box-archive"></i> Staging & Import <span class="badge" id="staging-badge">0</span></button>
             <button class="tab-btn" data-tab="terminal"><i class="fa-solid fa-terminal"></i> Live Console</button>
@@ -345,7 +318,7 @@
                             <button type="button" class="btn-system" data-system="random">
                                 <i class="fa-solid fa-shuffle"></i> Smart Shuffle (Downloaded)
                             </button>
-                            <button type="button" class="btn-system" data-system="ai">
+                            <button type="button" class="btn-system" data-system="ai" style="display: none;">
                                 <i class="fa-solid fa-wand-magic-sparkles"></i> AI Curator (Ollama)
                             </button>
                             <button type="button" class="btn-system" data-system="decade">
@@ -646,17 +619,15 @@
                 </div>
             </section>
 
-            <!-- TAB 2: AI RECOMMENDATIONS -->
+            <!-- TAB 2: RECOMMENDATIONS -->
             <section class="tab-pane" id="pane-recommendations">
                 <div class="card glass">
                     <div class="card-header flex-between">
                         <div>
-                            <h2><i class="fa-solid fa-wand-magic-sparkles"></i> AI Music Recommendations</h2>
-                            <p class="subtitle">Personalized artist & album discovery grounded in your actual Beets library and powered by Ollama.</p>
+                            <h2><i class="fa-solid fa-compass"></i> Music Recommendations & Library Extender</h2>
+                            <p class="subtitle">Fast artist & album discovery grounded in your actual Beets library (Deezer & Knowledge Graph).</p>
                         </div>
                     </div>
-
-<!-- Ollama system controls are shared globally above -->
 
                     <!-- Taste Profile Chips -->
                     <div class="taste-profile-banner mt-3" id="taste-profile-summary">
@@ -702,20 +673,20 @@
                         <div class="input-group mt-3">
                             <i class="fa-solid fa-compass input-icon"></i>
                             <input type="text" id="ai-custom-prompt" placeholder="Optional custom direction: e.g. 'Upbeat driving songs for road trips' or 'Fuzzy basslines & storytelling'">
-                            <button type="button" class="btn btn-primary" id="btn-generate-recs"><i class="fa-solid fa-sparkles"></i> Generate Recommendations</button>
+                            <button type="button" class="btn btn-primary" id="btn-generate-recs"><i class="fa-solid fa-compass"></i> Discover Recommendations</button>
                         </div>
                     </div>
 
                     <!-- Recommendations Grid Container -->
                     <div class="recommendations-container mt-4" id="recommendations-container">
                         <div class="empty-state text-center text-muted" id="recs-placeholder">
-                            <i class="fa-solid fa-wand-magic-sparkles fa-3x mb-2" style="opacity: 0.35;"></i>
-                            <p>Select a taste focus above and click <strong>"Generate Recommendations"</strong>.</p>
-                            <p class="text-xs" style="opacity: 0.7;">Recommendations are generated on-the-fly via Ollama on your local network.</p>
+                            <i class="fa-solid fa-compass fa-3x mb-2" style="opacity: 0.35;"></i>
+                            <p>Select a taste focus above and click <strong>"Discover Recommendations"</strong>.</p>
+                            <p class="text-xs" style="opacity: 0.7;">Fast artist & album discovery grounded in your actual Beets library (Deezer & Knowledge Graph).</p>
                         </div>
                         <div class="recs-loading" id="recs-loading" style="display: none;">
                             <div class="spinner" style="margin: 30px auto;"></div>
-                            <p class="text-center">Consulting Ollama AI with your library profile...</p>
+                            <p class="text-center">Discovering recommendations via Music Knowledge Graph...</p>
                         </div>
                         
                         <!-- Action Bar for All Recommendations -->
@@ -1111,12 +1082,12 @@
 
     <!-- Subtle Version Watermark (Bottom-Left) -->
     <div class="version-watermark" id="app-version-watermark" title="Music Manager (Click to view version and update details)">
-        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.5.2
+        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.5.3
     </div>
 
     <!-- Notification Toast -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/app.js?v=1.5.2"></script>
+    <script src="/static/app.js?v=1.5.3"></script>
 </body>
 </html>

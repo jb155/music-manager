@@ -7,7 +7,6 @@ document.addEventListener("DOMContentLoaded", () => {
     initSSE();
     initAbortControls();
     loadLibraryStats();
-    loadOllamaServers();
     loadMissingTracks();
     loadStagingFiles();
     initManualUpload();
@@ -185,7 +184,6 @@ function initTabs() {
             if (tabName === "staging") loadStagingFiles();
             if (tabName === "recommendations") {
                 refreshAITasteProfile();
-                loadOllamaServers();
             }
         });
     });
@@ -938,7 +936,6 @@ let showAllAnchors = false;
 let dynamicStylePresets = [];
 
 async function initAIRecommendations() {
-    await loadOllamaServers();
     await refreshAITasteProfile();
 
     // Wire up server selector
@@ -1042,6 +1039,7 @@ async function loadOllamaServers() {
     const pill = document.getElementById("ollama-connection-pill");
     const serverSelect = document.getElementById("ollama-server-select");
     const btnRemove = document.getElementById("btn-remove-ollama");
+    if (!pill && !serverSelect) return;
 
     try {
         const res = await fetch("/api/ai/servers");
@@ -1404,14 +1402,8 @@ async function generateRecommendations() {
     const placeholder = document.getElementById("recs-placeholder");
     const loading = document.getElementById("recs-loading");
     const grid = document.getElementById("recs-grid");
-    const modelSelect = document.getElementById("ai-model-select");
-    const customPrompt = document.getElementById("ai-custom-prompt").value.trim();
-
-    const selectedModel = modelSelect.value;
-    if (!selectedModel) {
-        showToast("No AI model available. Check Ollama server connection.", "error");
-        return;
-    }
+    const customPromptInput = document.getElementById("ai-custom-prompt");
+    const customPrompt = customPromptInput ? customPromptInput.value.trim() : "";
 
     btnGen.disabled = true;
     placeholder.style.display = "none";
@@ -1423,7 +1415,6 @@ async function generateRecommendations() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                model: selectedModel,
                 preset: activePreset,
                 custom_guidance: activeGuidance,
                 prompt: customPrompt,
@@ -1434,16 +1425,16 @@ async function generateRecommendations() {
 
         if (!res.ok) {
             const err = await res.json();
-            throw new Error(err.detail || "AI generation failed");
+            throw new Error(err.detail || "Recommendation discovery failed");
         }
 
         const data = await res.json();
         renderRecommendations(data.recommendations || []);
-        showToast("Recommendations generated!", "success");
+        showToast("Recommendations discovered!", "success");
     } catch (err) {
-        showToast(`AI Error: ${err.message}`, "error");
+        showToast(`Discovery Error: ${err.message}`, "error");
         placeholder.style.display = "block";
-        placeholder.innerHTML = `<i class="fa-solid fa-triangle-exclamation fa-2x mb-2 text-danger"></i><p>Failed to generate recommendations: ${escapeHtml(err.message)}</p>`;
+        placeholder.innerHTML = `<i class="fa-solid fa-triangle-exclamation fa-2x mb-2 text-danger"></i><p>Failed to discover recommendations: ${escapeHtml(err.message)}</p>`;
     } finally {
         btnGen.disabled = false;
         loading.style.display = "none";
