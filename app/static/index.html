@@ -197,6 +197,7 @@
                             <label for="library-sort-by"><i class="fa-solid fa-arrow-down-wide-short"></i> Sort:</label>
                             <select id="library-sort-by" class="select-control">
                                 <option value="artist">Artist</option>
+                                <option value="relevance">Relevance (% Match)</option>
                                 <option value="title">Title</option>
                                 <option value="album">Album</option>
                                 <option value="year">Year</option>
@@ -454,6 +455,18 @@
                             </div>
                             <div class="seed-artists-container" id="playlist-seed-artists">
                                 <span class="text-muted"><i class="fa-solid fa-spinner fa-spin"></i> Loading top artists...</span>
+                            </div>
+                            <div class="options-row mt-3">
+                                <label class="toggle-control">
+                                    <input type="checkbox" id="seed-balance-artists-toggle" checked>
+                                    <span class="toggle-slider"></span>
+                                    <span class="label-text"><strong>Equal Artist Balance</strong> (Guarantees strict equal track allocation across all selected artists)</span>
+                                </label>
+                                <label class="toggle-control mt-2">
+                                    <input type="checkbox" id="seed-adjacent-toggle">
+                                    <span class="toggle-slider"></span>
+                                    <span class="label-text"><strong>Include Genre-Adjacent Artists</strong> (Weave in discovery tracks from similar artists in library)</span>
+                                </label>
                             </div>
                         </div>
 
@@ -1018,14 +1031,74 @@
         </div>
     </div>
 
+    <!-- Album Consolidation & Deduplication Modal -->
+    <div class="modal-overlay hidden" id="album-consolidate-modal">
+        <div class="modal-card consolidate-modal-card">
+            <div class="modal-header">
+                <div>
+                    <h3 id="consolidate-modal-title"><i class="fa-solid fa-layer-group" style="color: #f59e0b;"></i> Consolidate Album Editions</h3>
+                    <p class="subtitle text-xs" id="consolidate-modal-subtitle">Merge redundant editions and prune duplicate songs to maintain minimal complete albums.</p>
+                </div>
+                <button type="button" class="btn-close" id="btn-close-consolidate-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Impact Banner -->
+                <div class="consolidate-impact-banner">
+                    <i class="fa-solid fa-wand-magic-sparkles banner-icon"></i>
+                    <div class="banner-text">
+                        <h4 id="consolidate-banner-heading">Consolidating Editions</h4>
+                        <p id="consolidate-banner-desc">Consolidating album variants keeps the most complete primary album, unifies unique bonus tracks, and permanently removes duplicate files.</p>
+                    </div>
+                </div>
+
+                <!-- Stats Grid -->
+                <div class="delete-stats-grid">
+                    <div class="delete-stat-box">
+                        <div class="stat-val" id="consolidate-stat-groups" style="color: #60a5fa;">-</div>
+                        <div class="stat-label">Album Sets</div>
+                    </div>
+                    <div class="delete-stat-box">
+                        <div class="stat-val" id="consolidate-stat-variants" style="color: #fbbf24;">-</div>
+                        <div class="stat-label">Variants</div>
+                    </div>
+                    <div class="delete-stat-box">
+                        <div class="stat-val" id="consolidate-stat-dups" style="color: #f87171;">-</div>
+                        <div class="stat-label">Duplicate Songs</div>
+                    </div>
+                    <div class="delete-stat-box">
+                        <div class="stat-val" id="consolidate-stat-freed" style="color: #34d399;">-</div>
+                        <div class="stat-label">Space Freed</div>
+                    </div>
+                </div>
+
+                <!-- Groups Section -->
+                <div class="consolidate-groups-section">
+                    <div class="delete-exclusion-header">
+                        <h5><i class="fa-solid fa-list-check"></i> Detected Album Variants to Consolidate:</h5>
+                        <span id="consolidate-group-hint">Duplicate songs pruned, unique bonus tracks merged</span>
+                    </div>
+                    <div class="consolidate-groups-wrap" id="consolidate-groups-list">
+                        <!-- Populated dynamically with album consolidation groups -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-cancel-consolidate">Cancel</button>
+                <button type="button" class="btn btn-warning btn-sm" id="btn-confirm-consolidate">
+                    <i class="fa-solid fa-compress"></i> Consolidate Albums & Delete Duplicates
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Subtle Version Watermark (Bottom-Left) -->
     <div class="version-watermark" id="app-version-watermark" title="Music Manager (Click to view version and update details)">
-        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.4.1
+        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.5.0
     </div>
 
     <!-- Notification Toast -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/app.js?v=1.4.1"></script>
+    <script src="/static/app.js?v=1.5.0"></script>
 </body>
 </html>

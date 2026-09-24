@@ -5359,3 +5359,165 @@ select option:checked,
     animation: modal-enter 0.2s ease-out;
 }
 
+/* Match Percentage Badge */
+.badge-match {
+    background: rgba(16, 185, 129, 0.18);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 6px;
+}
+
+/* Album Consolidation & Deduplication Modal */
+.consolidate-modal-card {
+    max-width: 720px;
+    width: 95%;
+    max-height: calc(100vh - 40px);
+    display: flex;
+    flex-direction: column;
+    border-color: rgba(245, 158, 11, 0.35);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+    margin: auto;
+}
+
+.consolidate-modal-card .modal-body {
+    padding: 18px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.consolidate-impact-banner {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 18px;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    border-radius: 12px;
+}
+
+.consolidate-impact-banner i.banner-icon {
+    font-size: 32px;
+    color: #f59e0b;
+    flex-shrink: 0;
+}
+
+.consolidate-impact-banner .banner-text h4 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: #fde68a;
+    line-height: 1.3;
+}
+
+.consolidate-impact-banner .banner-text p {
+    margin: 4px 0 0 0;
+    font-size: 12.5px;
+    color: var(--text-muted, #94a3b8);
+}
+
+.consolidate-groups-wrap {
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    max-height: 280px;
+    overflow-y: auto;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.consolidate-group-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.consolidate-group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.consolidate-group-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.consolidate-primary-badge {
+    background: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-weight: 600;
+}
+
+.consolidate-variant-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+.consolidate-variant-name {
+    color: var(--text-muted, #cbd5e1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+}
+
+.consolidate-pill-dup {
+    color: #f87171;
+    background: rgba(239, 68, 68, 0.15);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    margin-left: 6px;
+}
+
+.consolidate-pill-merge {
+    color: #34d399;
+    background: rgba(16, 185, 129, 0.15);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    margin-left: 6px;
+}
+
+.artist-albums-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    margin-bottom: 12px;
+}
+

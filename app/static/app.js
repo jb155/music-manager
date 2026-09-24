@@ -18,6 +18,7 @@ document.addEventListener("DOMContentLoaded", () => {
     startStatusPoller();
     initUpdateBadge();
     initSlideLockout();
+    initAlbumConsolidationModal();
     checkAppVersion();
 });
 
@@ -1846,6 +1847,10 @@ async function generatePlaylist() {
         } else if (mode === "artist_seed") {
             const selectedSeeds = Array.from(document.querySelectorAll("#playlist-seed-artists .chip-selectable.selected")).map(c => c.dataset.artist);
             payload.seed_artists = selectedSeeds.length > 0 ? selectedSeeds : ["Pink Floyd"];
+            const balanceToggle = document.getElementById("seed-balance-artists-toggle");
+            payload.balance_artists = balanceToggle ? balanceToggle.checked : true;
+            const adjacentToggle = document.getElementById("seed-adjacent-toggle");
+            payload.include_adjacent = adjacentToggle ? adjacentToggle.checked : (selectedSeeds.length <= 1);
         } else if (mode === "venn") {
             const sliceRadio = document.querySelector('input[name="venn-slice"]:checked');
             const vennSlice = sliceRadio ? sliceRadio.value : "overlap_only";
@@ -3041,6 +3046,7 @@ async function loadLibraryHierarchy() {
                         <div class="lib-artist-info">
                             <div class="lib-artist-title-row">
                                 <h3>${escapeHtml(art.name)}</h3>
+                                ${art.match_percent != null ? `<span class="badge badge-match">${art.match_percent}% match</span>` : ''}
                                 <span class="badge" style="font-size: 11px;">${escapeHtml(art.genre || "Music")}</span>
                             </div>
                             <div class="lib-artist-meta">
@@ -3169,6 +3175,11 @@ function renderArtistAlbums(artIdx) {
     content.innerHTML = `
         <div class="lib-albums-header">
             <span><strong>${escapeHtml(art.name)}</strong> Albums (${art.albums.length})</span>
+            <div class="artist-albums-toolbar">
+                <button type="button" class="btn btn-secondary btn-sm btn-consolidate-albums" data-artist="${escapeAttr(art.name)}" data-art-idx="${artIdx}" title="Consolidate duplicate editions, deluxes &amp; remasters for ${escapeAttr(art.name)}">
+                    <i class="fa-solid fa-layer-group" style="color: #f59e0b;"></i> Deduplicate &amp; Consolidate Editions
+                </button>
+            </div>
         </div>
         <div class="lib-albums-list">
             ${art.albums.map((alb, albIdx) => `
@@ -3212,6 +3223,16 @@ function renderArtistAlbums(artIdx) {
             `).join("")}
         </div>
     `;
+
+    // Bind Consolidate Editions button
+    content.querySelectorAll(".btn-consolidate-albums").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const artName = btn.dataset.artist;
+            const aIdx = parseInt(btn.dataset.artIdx);
+            openAlbumConsolidationModal(artName, aIdx);
+        });
+    });
 
     // Bind Album Row Clicks to toggle songs
     content.querySelectorAll(".lib-album-row").forEach(row => {
@@ -4662,3 +4683,242 @@ function initSlideLockout() {
         btnFooter.addEventListener("click", executeDeletion);
     }
 }
+
+// ----------------------------------------------------------------------------
+// ALBUM CONSOLIDATION & DEDUPLICATION MODAL
+// ----------------------------------------------------------------------------
+let currentConsolidationData = null;
+let currentConsolidatingArtist = null;
+let currentConsolidatingArtIdx = null;
+
+function initAlbumConsolidationModal() {
+    const modal = document.getElementById("album-consolidate-modal");
+    const btnClose = document.getElementById("btn-close-consolidate-modal");
+    const btnCancel = document.getElementById("btn-cancel-consolidate");
+    const btnConfirm = document.getElementById("btn-confirm-consolidate");
+
+    if (btnClose) btnClose.addEventListener("click", () => modal?.classList.add("hidden"));
+    if (btnCancel) btnCancel.addEventListener("click", () => modal?.classList.add("hidden"));
+
+    if (modal) {
+        modal.addEventListener("click", (e) => {
+            if (e.target === modal) modal.classList.add("hidden");
+        });
+    }
+
+    if (btnConfirm) {
+        btnConfirm.addEventListener("click", executeAlbumConsolidation);
+    }
+}
+
+async function openAlbumConsolidationModal(artistName, artIdx) {
+    const modal = document.getElementById("album-consolidate-modal");
+    if (!modal) return;
+
+    currentConsolidationData = null;
+    currentConsolidatingArtist = artistName;
+    currentConsolidatingArtIdx = artIdx;
+
+    const titleEl = document.getElementById("consolidate-modal-title");
+    const subtitleEl = document.getElementById("consolidate-modal-subtitle");
+    const statGroups = document.getElementById("consolidate-stat-groups");
+    const statVariants = document.getElementById("consolidate-stat-variants");
+    const statDups = document.getElementById("consolidate-stat-dups");
+    const statFreed = document.getElementById("consolidate-stat-freed");
+    const groupsList = document.getElementById("consolidate-groups-list");
+    const btnConfirm = document.getElementById("btn-confirm-consolidate");
+
+    if (titleEl) titleEl.innerHTML = `<i class="fa-solid fa-layer-group" style="color: #f59e0b;"></i> Consolidate Albums for ${escapeHtml(artistName)}`;
+    if (subtitleEl) subtitleEl.textContent = `Analyzing album editions and detecting duplicate tracks...`;
+    if (statGroups) statGroups.textContent = "-";
+    if (statVariants) statVariants.textContent = "-";
+    if (statDups) statDups.textContent = "-";
+    if (statFreed) statFreed.textContent = "-";
+
+    if (groupsList) {
+        groupsList.innerHTML = `
+            <div class="p-4 text-center text-muted">
+                <i class="fa-solid fa-spinner fa-spin fa-2x mb-2" style="color: var(--primary);"></i>
+                <div>Analyzing ${escapeHtml(artistName)}'s albums for duplicate editions and tracks...</div>
+            </div>
+        `;
+    }
+
+    if (btnConfirm) {
+        btnConfirm.disabled = true;
+        btnConfirm.innerHTML = `<i class="fa-solid fa-compress"></i> Consolidate Albums &amp; Delete Duplicates`;
+    }
+
+    modal.classList.remove("hidden");
+
+    try {
+        const res = await fetch(`/api/library/albums/consolidate/analyze?artist=${encodeURIComponent(artistName)}`);
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            showToast(data.error || "Failed to analyze album consolidation", "error");
+            modal.classList.add("hidden");
+            return;
+        }
+
+        currentConsolidationData = data;
+        renderConsolidationUI(data);
+
+    } catch (err) {
+        showToast("Error connecting to server: " + err.message, "error");
+        modal.classList.add("hidden");
+    }
+}
+
+function renderConsolidationUI(data) {
+    const subtitleEl = document.getElementById("consolidate-modal-subtitle");
+    const statGroups = document.getElementById("consolidate-stat-groups");
+    const statVariants = document.getElementById("consolidate-stat-variants");
+    const statDups = document.getElementById("consolidate-stat-dups");
+    const statFreed = document.getElementById("consolidate-stat-freed");
+    const groupsList = document.getElementById("consolidate-groups-list");
+    const btnConfirm = document.getElementById("btn-confirm-consolidate");
+
+    const totalRedundant = data.redundant_groups_count || 0;
+    if (statGroups) statGroups.textContent = totalRedundant;
+    if (statVariants) statVariants.textContent = data.total_variants_to_prune || 0;
+    if (statDups) statDups.textContent = data.total_duplicate_tracks || 0;
+    if (statFreed) statFreed.textContent = data.estimated_freed_str || "0 B";
+
+    if (totalRedundant === 0) {
+        if (subtitleEl) subtitleEl.textContent = `All albums are already minimal and complete with zero duplicate editions.`;
+        if (groupsList) {
+            groupsList.innerHTML = `
+                <div class="p-4 text-center text-muted">
+                    <i class="fa-solid fa-circle-check fa-2x mb-2 text-success" style="opacity: 0.8;"></i>
+                    <p style="font-weight: 500;">No duplicate album editions found for ${escapeHtml(data.artist)}.</p>
+                    <p class="text-xs text-muted">Each album in your vault for this artist is already a distinct, minimal release.</p>
+                </div>
+            `;
+        }
+        if (btnConfirm) btnConfirm.disabled = true;
+        return;
+    }
+
+    if (subtitleEl) {
+        subtitleEl.textContent = `Found ${totalRedundant} album sets with ${data.total_variants_to_prune} redundant variants and ${data.total_duplicate_tracks} duplicate tracks to clean.`;
+    }
+
+    if (btnConfirm) {
+        btnConfirm.disabled = false;
+        btnConfirm.innerHTML = `<i class="fa-solid fa-compress"></i> Consolidate (${data.total_duplicate_tracks} Duplicates)`;
+    }
+
+    if (groupsList) {
+        groupsList.innerHTML = data.groups.map(group => `
+            <div class="consolidate-group-card">
+                <div class="group-header">
+                    <div>
+                        <h5 class="group-title"><i class="fa-solid fa-compact-disc text-primary"></i> ${escapeHtml(group.base_name)}</h5>
+                        <div class="group-sub text-xs text-muted">
+                            Primary Album: <strong class="text-success">${escapeHtml(group.primary_album.name)}</strong> (${group.primary_album.track_count} tracks)
+                            &bull; Redundant Variants: <strong>${group.variant_albums.map(v => escapeHtml(v.name)).join(", ")}</strong>
+                        </div>
+                    </div>
+                    <div class="group-badge-wrap">
+                        <span class="badge badge-danger">${group.duplicate_tracks_count} duplicates to delete</span>
+                        ${group.unique_bonus_tracks_count > 0 ? `<span class="badge badge-success">${group.unique_bonus_tracks_count} bonus tracks to merge</span>` : ''}
+                        <span class="badge badge-muted">${group.freed_str} freed</span>
+                    </div>
+                </div>
+                <div class="group-details mt-2">
+                    ${group.duplicate_tracks_count > 0 ? `
+                        <div class="text-xs text-muted mb-1">
+                            <span class="text-danger" style="font-weight: 600;"><i class="fa-solid fa-trash-can"></i> Duplicate files to remove:</span>
+                            ${group.duplicate_tracks.slice(0, 6).map(t => escapeHtml(t.title)).join(", ")}${group.duplicate_tracks.length > 6 ? ` <em>(+${group.duplicate_tracks.length - 6} more)</em>` : ''}
+                        </div>
+                    ` : ''}
+                    ${group.unique_bonus_tracks_count > 0 ? `
+                        <div class="text-xs text-muted">
+                            <span class="text-success" style="font-weight: 600;"><i class="fa-solid fa-share-nodes"></i> Unique bonus tracks to retain &amp; merge into primary album:</span>
+                            ${group.unique_tracks.slice(0, 6).map(t => escapeHtml(t.title)).join(", ")}${group.unique_tracks.length > 6 ? ` <em>(+${group.unique_tracks.length - 6} more)</em>` : ''}
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `).join("");
+    }
+}
+
+async function executeAlbumConsolidation() {
+    if (!currentConsolidatingArtist || !currentConsolidationData) return;
+
+    const btnConfirm = document.getElementById("btn-confirm-consolidate");
+    const modal = document.getElementById("album-consolidate-modal");
+
+    if (btnConfirm) {
+        btnConfirm.disabled = true;
+        btnConfirm.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Consolidating &amp; Deleting...`;
+    }
+
+    try {
+        const res = await fetch("/api/library/albums/consolidate/execute", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ artist: currentConsolidatingArtist })
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            showToast(data.error || "Failed to execute album consolidation", "error");
+            if (btnConfirm) {
+                btnConfirm.disabled = false;
+                btnConfirm.innerHTML = `<i class="fa-solid fa-compress"></i> Retry Consolidation`;
+            }
+            return;
+        }
+
+        showToast(`Consolidation complete! Pruned ${data.deleted_tracks} duplicates (freed ${data.freed_str}), merged ${data.merged_tracks} unique tracks across ${data.consolidated_groups} album sets.`, "success");
+        modal?.classList.add("hidden");
+
+        // Refresh stats
+        loadLibraryStats();
+
+        // Refresh artist albums in current view if expanded
+        if (currentConsolidatingArtIdx !== null && currentLibraryArtists && currentLibraryArtists[currentConsolidatingArtIdx]) {
+            const art = currentLibraryArtists[currentConsolidatingArtIdx];
+            art.albums = null; // force reload
+            const content = document.getElementById(`lib-artist-albums-content-${currentConsolidatingArtIdx}`);
+            if (content) {
+                content.innerHTML = `
+                    <div class="p-3 text-center text-muted" style="font-size: 12px;">
+                        <i class="fa-solid fa-spinner fa-spin"></i> Refreshing albums for "${escapeHtml(art.name)}"...
+                    </div>
+                `;
+            }
+            try {
+                const albRes = await fetch(`/api/library/artist-albums?artist=${encodeURIComponent(art.name)}`);
+                const albData = await albRes.json();
+                art.albums = (albData.albums || []).map(alb => ({ ...alb, tracks: null }));
+                art.album_count = art.albums.length;
+                renderArtistAlbums(currentConsolidatingArtIdx);
+
+                // Update the count on the artist card
+                const artistItem = document.querySelector(`.lib-artist-item[data-index="${currentConsolidatingArtIdx}"]`);
+                if (artistItem) {
+                    const metaSpan = artistItem.querySelector(".lib-artist-meta span");
+                    if (metaSpan) {
+                        metaSpan.innerHTML = `<i class="fa-solid fa-compact-disc"></i> ${art.album_count} ${art.album_count === 1 ? 'album' : 'albums'}`;
+                    }
+                }
+            } catch (e) {
+                console.error("Error refreshing artist albums:", e);
+            }
+        } else {
+            loadLibraryHierarchy();
+        }
+
+    } catch (err) {
+        showToast("Network error executing consolidation: " + err.message, "error");
+        if (btnConfirm) {
+            btnConfirm.disabled = false;
+            btnConfirm.innerHTML = `<i class="fa-solid fa-compress"></i> Retry Consolidation`;
+        }
+    }
+}
+

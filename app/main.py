@@ -37,7 +37,7 @@ except Exception:
     pass
 
 
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.5.0"
 
 app = FastAPI(title="Music Manager Web", version=APP_VERSION)
 
@@ -744,6 +744,28 @@ async def get_library_artist_albums_endpoint(artist: str = Query(...)):
 async def get_library_album_tracks_endpoint(album_id: int = Query(...)):
     """Get all library tracks for a specific album."""
     return service.get_library_album_tracks(album_id=album_id)
+
+class ConsolidateAlbumsRequest(BaseModel):
+    artist: Optional[str] = None
+    group_bases: Optional[List[str]] = None
+    exclude_track_ids: Optional[List[int]] = None
+
+@app.get("/api/library/albums/consolidate/analyze")
+async def analyze_album_consolidation_endpoint(artist: Optional[str] = Query(None, description="Optional artist name to filter analysis")):
+    """Analyze album edition variants to identify duplicate tracks and consolidation plan."""
+    return service.analyze_album_consolidation(artist_name=artist)
+
+@app.post("/api/library/albums/consolidate/execute")
+async def execute_album_consolidation_endpoint(req: ConsolidateAlbumsRequest):
+    """Execute album consolidation: delete duplicate files and merge unique tracks into primary album."""
+    res = service.execute_album_consolidation(
+        artist_name=req.artist,
+        group_bases=req.group_bases,
+        exclude_track_ids=req.exclude_track_ids
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=500, detail=res.get("error", "Consolidation failed"))
+    return res
 
 @app.get("/api/library/artist-art")
 async def get_library_artist_art_endpoint(artist: str = Query(...)):

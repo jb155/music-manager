@@ -1,5 +1,5 @@
 {
-  "version": "1.4.1",
+  "version": "1.5.0",
   "release_date": "2026-09-24",
-  "notes": "Fixed deletion slide lockout closing prematurely on swipe release and ensured in-place delete confirmation button appearance without layout shift; added responsive modal scrolling and secondary footer confirm button."
+  "notes": "Added Artist search ranking by percentage match with false-positive filtering; added Album Consolidation & Deduplication to ensure minimal complete albums without duplicate songs; added balanced multi-artist playlist distribution."
 }

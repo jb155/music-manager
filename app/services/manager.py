@@ -14,6 +14,8 @@ import subprocess
 import urllib.request
 import urllib.error
 import urllib.parse
+import difflib
+from collections import defaultdict
 from typing import AsyncGenerator, List, Dict, Any, Optional, Tuple, Union
 
 # Ensure HOME and XDG environment variables point to a writable config directory
@@ -3284,6 +3286,48 @@ paths:
         self._external_preview_cache[cache_key] = res
         return res
 
+    @staticmethod
+    def calculate_artist_match_score(query: str, artist_name: str) -> float:
+        """Calculate match percentage score (0.0 to 100.0) for an artist name against search query."""
+        if not query or not artist_name:
+            return 0.0
+        q = query.strip().lower()
+        a = artist_name.strip().lower()
+        if not q or not a:
+            return 0.0
+
+        if a == q:
+            return 100.0
+
+        # Exact word match (e.g. 'queen' in 'the queen' or 'queen + paul rodgers')
+        words = re.findall(r'\b\w+\b', a)
+        if q in words:
+            ratio = len(q) / max(1, len(a))
+            return round(88.0 + 10.0 * ratio, 1)
+
+        # Starts with query (e.g. 'queens of the stone age' or 'queensrÿche')
+        if a.startswith(q):
+            ratio = len(q) / max(1, len(a))
+            return round(80.0 + 15.0 * ratio, 1)
+
+        # Any word starts with query
+        for w in words:
+            if w.startswith(q):
+                ratio = len(q) / max(1, len(a))
+                return round(72.0 + 10.0 * ratio, 1)
+
+        # Substring match
+        if q in a:
+            ratio = len(q) / max(1, len(a))
+            return round(60.0 + 15.0 * ratio, 1)
+
+        # Fuzzy sequence similarity for minor typos (e.g. 'queeen')
+        sim = difflib.SequenceMatcher(None, q, a).ratio() * 100.0
+        if sim >= 65.0:
+            return round(sim, 1)
+
+        return 0.0
+
     # -------------------------------------------------------------
     # LIBRARY HIERARCHY EXPLORER (ARTIST -> ALBUM -> SONGS)
     # -------------------------------------------------------------
@@ -3297,7 +3341,7 @@ paths:
         page: int = 1,
         limit: int = 25
     ) -> Dict[str, Any]:
-        """Fetch paginated library artists with album and track counts, filtered by query/genre/decade."""
+        """Fetch paginated library artists with album and track counts, ranked by % match when searching."""
         db_path = os.path.join(self.beets_dir, "library.db")
         page = max(1, page)
         limit = max(1, min(100, limit))
@@ -3306,10 +3350,11 @@ paths:
         where_clauses = ["items.length > 10", "COALESCE(NULLIF(items.albumartist, ''), items.artist) != ''"]
         sql_params = []
 
-        if query and query.strip():
-            q = f"%{query.strip()}%"
-            where_clauses.append("(items.artist LIKE ? OR items.albumartist LIKE ? OR items.album LIKE ? OR items.title LIKE ?)")
-            sql_params.extend([q, q, q, q])
+        clean_q = query.strip() if query else ""
+        if clean_q:
+            q_like = f"%{clean_q}%"
+            where_clauses.append("(items.artist LIKE ? OR items.albumartist LIKE ?)")
+            sql_params.extend([q_like, q_like])
 
         # Ignore empty or "all" genres
         if genre and genre.strip() and genre.strip().lower() not in ("", "all", "all genres", "all genre"):
@@ -3332,26 +3377,96 @@ paths:
         # Determine sorting column and direction
         order_dir = "DESC" if str(sort_order).lower() == "desc" else "ASC"
         s_by = str(sort_by).lower().strip()
-        if s_by in ("album", "albums"):
-            order_col = "album_count"
-        elif s_by in ("title", "track", "tracks"):
-            order_col = "track_count"
-        elif s_by in ("year", "era"):
-            order_col = "max_year"
-        elif s_by in ("added", "recent"):
-            order_col = "max_added"
-        else:
-            order_col = "artist_name COLLATE NOCASE"
-
-        order_clause = f"{order_col} {order_dir}"
-        if order_col != "artist_name COLLATE NOCASE":
-            order_clause += ", artist_name COLLATE NOCASE ASC"
 
         try:
             conn = sqlite3.connect(db_path)
             c = conn.cursor()
 
-            # Count distinct artists matching filters (case-insensitive)
+            # When a search query is active, fetch matching artists, calculate match percentage and rank
+            if clean_q:
+                query_sql = f"""
+                    SELECT 
+                        COALESCE(NULLIF(items.albumartist, ''), items.artist) as artist_name,
+                        COUNT(DISTINCT items.id) as track_count,
+                        COUNT(DISTINCT NULLIF(lower(items.album), '')) as album_count,
+                        MAX(items.genre) as top_genre,
+                        MIN(NULLIF(items.year, 0)) as min_year,
+                        MAX(items.year) as max_year,
+                        MAX(items.added) as max_added
+                    FROM items
+                    WHERE {where_sql}
+                    GROUP BY lower(artist_name)
+                """
+                c.execute(query_sql, sql_params)
+                all_rows = c.fetchall()
+                conn.close()
+
+                scored_rows = []
+                for r in all_rows:
+                    name = r[0]
+                    score = self.calculate_artist_match_score(clean_q, name)
+                    if score > 0:
+                        scored_rows.append((score, r))
+
+                # If sorting by artist or relevance (default search behavior), sort primarily by % match!
+                if s_by in ("artist", "relevance", "match") or not s_by:
+                    scored_rows.sort(key=lambda x: (x[0], x[1][1], -len(x[1][0])), reverse=True)
+                elif s_by in ("album", "albums"):
+                    scored_rows.sort(key=lambda x: x[1][2], reverse=(order_dir == "DESC"))
+                elif s_by in ("title", "track", "tracks"):
+                    scored_rows.sort(key=lambda x: x[1][1], reverse=(order_dir == "DESC"))
+                elif s_by in ("year", "era"):
+                    scored_rows.sort(key=lambda x: x[1][5] or 0, reverse=(order_dir == "DESC"))
+                elif s_by in ("added", "recent"):
+                    scored_rows.sort(key=lambda x: x[1][6] or 0, reverse=(order_dir == "DESC"))
+
+                total_artists = len(scored_rows)
+                page_rows = scored_rows[offset:offset + limit]
+
+                artists = []
+                for score, r in page_rows:
+                    name, t_count, a_count, g, min_y, max_y, _ = r
+                    year_str = ""
+                    if min_y and max_y:
+                        year_str = f"{min_y} - {max_y}" if min_y != max_y else str(min_y)
+                    elif max_y:
+                        year_str = str(max_y)
+
+                    artists.append({
+                        "name": name,
+                        "track_count": t_count,
+                        "album_count": max(1, a_count),
+                        "genre": g or "Music",
+                        "year_range": year_str,
+                        "match_percent": score,
+                        "image_url": f"/api/library/artist-art?artist={urllib.parse.quote(name)}"
+                    })
+
+                total_pages = max(1, math.ceil(total_artists / limit))
+                return {
+                    "artists": artists,
+                    "total": total_artists,
+                    "page": page,
+                    "limit": limit,
+                    "total_pages": total_pages
+                }
+
+            # Standard browsing (no query): fast SQL paginated path
+            if s_by in ("album", "albums"):
+                order_col = "album_count"
+            elif s_by in ("title", "track", "tracks"):
+                order_col = "track_count"
+            elif s_by in ("year", "era"):
+                order_col = "max_year"
+            elif s_by in ("added", "recent"):
+                order_col = "max_added"
+            else:
+                order_col = "artist_name COLLATE NOCASE"
+
+            order_clause = f"{order_col} {order_dir}"
+            if order_col != "artist_name COLLATE NOCASE":
+                order_clause += ", artist_name COLLATE NOCASE ASC"
+
             count_sql = f"""
                 SELECT COUNT(DISTINCT lower(COALESCE(NULLIF(items.albumartist, ''), items.artist)))
                 FROM items
@@ -3360,7 +3475,6 @@ paths:
             c.execute(count_sql, sql_params)
             total_artists = c.fetchone()[0]
 
-            # Query paginated artist list (grouped case-insensitively with accurate distinct album counts)
             query_sql = f"""
                 SELECT 
                     COALESCE(NULLIF(items.albumartist, ''), items.artist) as artist_name,
@@ -3395,6 +3509,7 @@ paths:
                     "album_count": max(1, a_count),
                     "genre": g or "Music",
                     "year_range": year_str,
+                    "match_percent": None,
                     "image_url": f"/api/library/artist-art?artist={urllib.parse.quote(name)}"
                 })
 
@@ -3512,6 +3627,297 @@ paths:
         except Exception as e:
             logger.error(f"Error in get_library_album_tracks for album {album_id}: {e}", exc_info=True)
             return {"album_id": album_id, "tracks": [], "error": str(e)}
+
+    @staticmethod
+    def get_base_album_name(album_name: str) -> str:
+        """Normalize an album name by stripping edition tags to identify the core release."""
+        if not album_name:
+            return ""
+        a = album_name.lower().strip()
+        a = re.sub(
+            r'\s*[\[\(](?:deluxe|collector|special|bonus|expanded|remaster|anniversary|original soundtrack|soundtrack|super deluxe|edition|version|disc|cd)[^\]\)]*[\]\)]',
+            '',
+            a,
+            flags=re.IGNORECASE
+        )
+        a = re.sub(
+            r'\s*[-:]\s*(?:original soundtrack|deluxe edition|special edition|remastered|anniversary edition).*$',
+            '',
+            a,
+            flags=re.IGNORECASE
+        )
+        a = re.sub(r'[\W_]+', ' ', a).strip()
+        return a
+
+    @staticmethod
+    def normalize_track_title_for_dedup(title: str) -> str:
+        """Normalize track title by stripping version/remaster qualifiers."""
+        if not title:
+            return ""
+        t = title.lower().strip()
+        t = re.sub(r'\s*[\[\(](?:remaster|live|deluxe|version|mono|stereo|single|edit|mix)[^\]\)]*[\]\)]', '', t, flags=re.IGNORECASE)
+        t = re.sub(r'[\W_]+', ' ', t).strip()
+        return t
+
+    def analyze_album_consolidation(self, artist_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Analyze album edition variants (Deluxe, Remaster, etc.) to consolidate into minimal complete albums.
+        Identifies duplicate tracks to delete and unique tracks to merge into the primary album edition.
+        """
+        db_path = os.path.join(self.beets_dir, "library.db")
+        if not os.path.exists(db_path):
+            return {"success": False, "error": "Library database not found", "groups": []}
+
+        try:
+            conn = sqlite3.connect(db_path)
+            c = conn.cursor()
+
+            where_clauses = ["items.length > 10"]
+            params = []
+            if artist_name and artist_name.strip():
+                clean_art = artist_name.strip()
+                where_clauses.append("(lower(items.artist) = lower(?) OR lower(items.albumartist) = lower(?))")
+                params.extend([clean_art, clean_art])
+
+            where_sql = " AND ".join(where_clauses)
+            c.execute(f"""
+                SELECT 
+                    items.id, items.album_id, items.album, items.title, items.track, items.disc, 
+                    items.year, items.length, items.bitrate, items.format, items.path,
+                    COALESCE(NULLIF(items.albumartist, ''), items.artist) as effective_artist
+                FROM items 
+                WHERE {where_sql}
+            """, params)
+            cols = [col[0] for col in c.description]
+            items = [dict(zip(cols, r)) for r in c.fetchall()]
+            conn.close()
+
+            # Group items by effective_artist -> base_album_name -> exact_album_name
+            artist_album_groups = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+            for it in items:
+                art = it['effective_artist'] or "Unknown Artist"
+                alb = it['album'] or "Unknown Album"
+                base = self.get_base_album_name(alb)
+                artist_album_groups[art][base][alb].append(it)
+
+            groups_res = []
+            total_variants = 0
+            total_dups = 0
+            total_merges = 0
+            total_bytes = 0
+
+            for art, base_groups in artist_album_groups.items():
+                for base, editions in base_groups.items():
+                    # Only consolidate if there are 2 or more album editions for this base title
+                    if len(editions) <= 1:
+                        continue
+
+                    # Choose primary edition: highest track count, prefer standard over deluxe if equal
+                    sorted_editions = sorted(
+                        editions.items(),
+                        key=lambda x: (len(x[1]), not any(w in x[0].lower() for w in ['deluxe', 'collector', 'special', 'expanded', 'soundtrack'])),
+                        reverse=True
+                    )
+                    primary_name, primary_tracks = sorted_editions[0]
+                    primary_album_id = primary_tracks[0]['album_id']
+                    primary_year = primary_tracks[0]['year'] or ""
+
+                    primary_titles = {}
+                    for pt in primary_tracks:
+                        nt = self.normalize_track_title_for_dedup(pt['title'])
+                        primary_titles[nt] = pt
+
+                    other_editions = []
+                    for other_name, other_tracks in sorted_editions[1:]:
+                        total_variants += 1
+                        dups = []
+                        uniques = []
+                        for ot in other_tracks:
+                            ont = self.normalize_track_title_for_dedup(ot['title'])
+                            is_dup = False
+                            if ont in primary_titles:
+                                pt = primary_titles[ont]
+                                len_diff = abs((ot['length'] or 0) - (pt['length'] or 0))
+                                if len_diff <= 15 or ot['length'] == 0:
+                                    is_dup = True
+
+                            p_str = self.resolve_audio_path(ot.get('path'))
+                            sz = os.path.getsize(p_str) if (p_str and os.path.exists(p_str)) else 0
+
+                            t_info = {
+                                'id': ot['id'],
+                                'title': ot['title'] or "Untitled",
+                                'track': ot['track'] or 0,
+                                'album': other_name,
+                                'duration': f"{int(ot.get('length') or 0) // 60}:{int(ot.get('length') or 0) % 60:02d}",
+                                'size_bytes': sz,
+                                'path': p_str
+                            }
+
+                            if is_dup:
+                                dups.append(t_info)
+                                total_dups += 1
+                                total_bytes += sz
+                            else:
+                                uniques.append(t_info)
+                                total_merges += 1
+
+                        other_editions.append({
+                            'album': other_name,
+                            'album_id': other_tracks[0]['album_id'],
+                            'track_count': len(other_tracks),
+                            'duplicate_tracks': dups,
+                            'unique_tracks': uniques
+                        })
+
+                    groups_res.append({
+                        'artist': art,
+                        'base_album': base,
+                        'primary_album': primary_name,
+                        'primary_album_id': primary_album_id,
+                        'primary_year': primary_year,
+                        'primary_track_count': len(primary_tracks),
+                        'other_editions': other_editions
+                    })
+
+            # Sort groups by artist then base album
+            groups_res.sort(key=lambda x: (x['artist'].lower(), x['base_album']))
+
+            if total_bytes >= 1024 * 1024 * 1024:
+                freed_str = f"{total_bytes / (1024 * 1024 * 1024):.2f} GB"
+            elif total_bytes >= 1024 * 1024:
+                freed_str = f"{total_bytes / (1024 * 1024):.1f} MB"
+            else:
+                freed_str = f"{total_bytes / 1024:.1f} KB"
+
+            return {
+                "success": True,
+                "artist": artist_name,
+                "groups_count": len(groups_res),
+                "total_variant_editions": total_variants,
+                "total_duplicate_tracks": total_dups,
+                "total_unique_tracks_to_merge": total_merges,
+                "total_bytes_freed": total_bytes,
+                "freed_str": freed_str,
+                "groups": groups_res
+            }
+        except Exception as e:
+            logger.error(f"Error in analyze_album_consolidation: {e}", exc_info=True)
+            return {"success": False, "error": str(e), "groups": []}
+
+    def execute_album_consolidation(
+        self,
+        artist_name: Optional[str] = None,
+        group_bases: Optional[List[str]] = None,
+        exclude_track_ids: Optional[List[int]] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute consolidation of album variants:
+        1. Permanently delete duplicate track audio files from disk.
+        2. Remove duplicate track rows from beets SQLite DB.
+        3. Merge unique bonus tracks into the primary album by updating their album & album_id.
+        4. Clean up orphaned album records in beets DB.
+        """
+        db_path = os.path.join(self.beets_dir, "library.db")
+        if not os.path.exists(db_path):
+            return {"success": False, "error": "Library database not found"}
+
+        analysis = self.analyze_album_consolidation(artist_name)
+        if not analysis.get("success"):
+            return analysis
+
+        excluded_ids = set(exclude_track_ids or [])
+        allowed_bases = set(group_bases) if group_bases else None
+
+        groups_to_process = []
+        for g in analysis.get("groups", []):
+            if allowed_bases is None or g["base_album"] in allowed_bases:
+                groups_to_process.append(g)
+
+        deleted_tracks_count = 0
+        deleted_files_count = 0
+        merged_tracks_count = 0
+        freed_bytes = 0
+
+        tracks_to_delete_ids = []
+        tracks_to_merge = []  # tuple of (new_album_name, new_album_id, track_id)
+
+        for g in groups_to_process:
+            primary_name = g["primary_album"]
+            primary_album_id = g["primary_album_id"]
+
+            for ed in g.get("other_editions", []):
+                # Process duplicate tracks
+                for dt in ed.get("duplicate_tracks", []):
+                    tid = dt["id"]
+                    if tid in excluded_ids:
+                        continue
+                    tracks_to_delete_ids.append(tid)
+                    freed_bytes += dt.get("size_bytes", 0)
+
+                    # Delete physical file
+                    p = dt.get("path")
+                    if p and os.path.exists(p):
+                        try:
+                            os.remove(p)
+                            deleted_files_count += 1
+                        except Exception as ex:
+                            logger.warning(f"Could not delete physical file {p}: {ex}")
+
+                # Process unique tracks to merge into primary album
+                for ut in ed.get("unique_tracks", []):
+                    tid = ut["id"]
+                    if tid in excluded_ids:
+                        continue
+                    tracks_to_merge.append((primary_name, primary_album_id, tid))
+
+        try:
+            conn = sqlite3.connect(db_path)
+            c = conn.cursor()
+
+            # 1. Delete duplicate tracks from items
+            if tracks_to_delete_ids:
+                for i in range(0, len(tracks_to_delete_ids), 500):
+                    batch = tracks_to_delete_ids[i:i + 500]
+                    placeholders = ",".join(["?"] * len(batch))
+                    c.execute(f"DELETE FROM items WHERE id IN ({placeholders})", batch)
+                deleted_tracks_count = len(tracks_to_delete_ids)
+
+            # 2. Merge unique tracks into primary album
+            if tracks_to_merge:
+                for new_alb, new_alb_id, tid in tracks_to_merge:
+                    c.execute("UPDATE items SET album = ?, album_id = ? WHERE id = ?", (new_alb, new_alb_id, tid))
+                merged_tracks_count = len(tracks_to_merge)
+
+            # 3. Clean up orphaned albums in albums table
+            c.execute("""
+                DELETE FROM albums 
+                WHERE id NOT IN (SELECT DISTINCT album_id FROM items WHERE album_id IS NOT NULL)
+            """)
+
+            conn.commit()
+            conn.close()
+
+            if freed_bytes >= 1024 * 1024 * 1024:
+                freed_str = f"{freed_bytes / (1024 * 1024 * 1024):.2f} GB"
+            elif freed_bytes >= 1024 * 1024:
+                freed_str = f"{freed_bytes / (1024 * 1024):.1f} MB"
+            else:
+                freed_str = f"{freed_bytes / 1024:.1f} KB"
+
+            return {
+                "success": True,
+                "artist": artist_name,
+                "processed_groups": len(groups_to_process),
+                "deleted_tracks": deleted_tracks_count,
+                "deleted_files": deleted_files_count,
+                "merged_tracks": merged_tracks_count,
+                "freed_bytes": freed_bytes,
+                "freed_str": freed_str
+            }
+        except Exception as e:
+            logger.error(f"Error executing album consolidation: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
 
     def get_library_album_art_path(self, album_id: int) -> Optional[str]:
         """Get absolute path to album art cover image for a library album."""
@@ -4504,34 +4910,86 @@ paths:
                 if not seed_artists:
                     seed_artists = ["Pink Floyd"]
 
-                # Pull seed artist tracks
-                seed_placeholders = ",".join(["?"] * len(seed_artists))
-                c.execute(f"SELECT id, title, artist, album, genre, length, path, year FROM items WHERE artist IN ({seed_placeholders}) ORDER BY RANDOM() LIMIT 60", seed_artists)
-                seed_tracks = [_format_track_row(r) for r in c.fetchall()]
+                # By default, if multiple artists are selected, focus on balancing them without outside dilution
+                include_adjacent = bool(params.get("include_adjacent", len(seed_artists) <= 1))
+                num_seeds = len(seed_artists)
+                target_per_artist = max(1, math.ceil(target_tracks / num_seeds)) if limit_by == "songs" else 30
 
-                # Find genres of seed artists to pull adjacent artists
-                seed_genres = set([t["genre"] for t in seed_tracks if t["genre"] and t["genre"] != "Unclassified"])
-                adjacent_tracks = []
-                if seed_genres:
-                    g_clauses = " OR ".join(["genre LIKE ?"] * len(seed_genres))
-                    c.execute(f"SELECT id, title, artist, album, genre, length, path, year FROM items WHERE ({g_clauses}) AND artist NOT IN ({seed_placeholders}) ORDER BY RANDOM() LIMIT 150", [f"%{g}%" for g in seed_genres] + seed_artists)
-                    adjacent_tracks = [_format_track_row(r) for r in c.fetchall()]
+                # Fetch candidate pools separately for each artist to ensure balanced representation
+                artist_track_pools = {}
+                for art in seed_artists:
+                    c.execute("""
+                        SELECT id, title, artist, album, genre, length, path, year 
+                        FROM items 
+                        WHERE length > 30 AND (lower(artist) = lower(?) OR lower(albumartist) = lower(?))
+                        ORDER BY RANDOM() 
+                        LIMIT ?
+                    """, (art, art, max(50, target_per_artist * 4)))
+                    artist_track_pools[art] = [_format_track_row(r) for r in c.fetchall()]
 
-                # Interleave seed and adjacent
-                cur_dur = 0
-                mix = []
-                s_idx, a_idx = 0, 0
-                while s_idx < len(seed_tracks) or a_idx < len(adjacent_tracks):
-                    if s_idx < len(seed_tracks):
-                        mix.append(seed_tracks[s_idx])
-                        s_idx += 1
-                    if a_idx < len(adjacent_tracks):
-                        mix.append(adjacent_tracks[a_idx])
-                        a_idx += 1
-                    if len(mix) > (target_tracks * 2):
+                # Round-robin interleaved pool across all seed artists
+                seed_tracks = []
+                indices = {art: 0 for art in seed_artists}
+                counts = {art: 0 for art in seed_artists}
+
+                while True:
+                    progress = False
+                    for art in seed_artists:
+                        pool = artist_track_pools[art]
+                        idx = indices[art]
+                        while idx < len(pool) and pool[idx]["id"] in seen_ids:
+                            idx += 1
+                        if idx < len(pool):
+                            # In strict artist mode, stop adding to this artist if quota reached and other artists still have tracks
+                            if not include_adjacent and limit_by == "songs" and counts[art] >= target_per_artist and any(counts[o] < target_per_artist and indices[o] < len(artist_track_pools[o]) for o in seed_artists):
+                                pass
+                            else:
+                                item = pool[idx]
+                                indices[art] = idx + 1
+                                counts[art] += 1
+                                seed_tracks.append(item)
+                                progress = True
+                    if not progress:
                         break
+                    if not include_adjacent and limit_by == "songs" and len(seed_tracks) >= target_tracks:
+                        break
+                    if not include_adjacent and limit_by == "time":
+                        cur_sec = sum(t["length"] for t in seed_tracks)
+                        if cur_sec >= target_duration_sec:
+                            break
 
-                for item in mix:
+                adjacent_tracks = []
+                if include_adjacent:
+                    # Find genres of seed artists to pull adjacent artists
+                    seed_genres = set([t["genre"] for t in seed_tracks if t["genre"] and t["genre"] != "Unclassified"])
+                    if seed_genres:
+                        seed_placeholders = ",".join(["?"] * len(seed_artists))
+                        g_clauses = " OR ".join(["genre LIKE ?"] * len(seed_genres))
+                        c.execute(f"SELECT id, title, artist, album, genre, length, path, year FROM items WHERE ({g_clauses}) AND artist NOT IN ({seed_placeholders}) ORDER BY RANDOM() LIMIT 150", [f"%{g}%" for g in seed_genres] + seed_artists)
+                        adjacent_tracks = [_format_track_row(r) for r in c.fetchall()]
+
+                # Interleave balanced seed tracks with adjacent tracks
+                cur_dur = 0
+                if include_adjacent and adjacent_tracks:
+                    mix = []
+                    s_idx, a_idx = 0, 0
+                    while s_idx < len(seed_tracks) or a_idx < len(adjacent_tracks):
+                        if s_idx < len(seed_tracks):
+                            mix.append(seed_tracks[s_idx])
+                            s_idx += 1
+                        if s_idx < len(seed_tracks):
+                            mix.append(seed_tracks[s_idx])
+                            s_idx += 1
+                        if a_idx < len(adjacent_tracks):
+                            mix.append(adjacent_tracks[a_idx])
+                            a_idx += 1
+                        if len(mix) > (target_tracks * 2):
+                            break
+                    candidates_final = mix
+                else:
+                    candidates_final = seed_tracks
+
+                for item in candidates_final:
                     if item["id"] not in seen_ids:
                         seen_ids.add(item["id"])
                         selected_tracks.append(item)
