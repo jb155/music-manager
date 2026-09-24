@@ -2969,6 +2969,11 @@ async function loadLibraryHierarchy() {
 
     if (!listEl) return;
 
+    // Capture currently expanded artists so they can be seamlessly restored after reload
+    const previouslyExpandedArtists = new Set(
+        Array.from(document.querySelectorAll(".lib-artist-item.expanded")).map(el => el.dataset.artist)
+    );
+
     listEl.innerHTML = `
         <div class="p-4 text-center text-muted">
             <i class="fa-solid fa-spinner fa-spin fa-2x mb-2" style="color: var(--primary);"></i>
@@ -3115,6 +3120,15 @@ async function loadLibraryHierarchy() {
                 openDeleteModal("artist", artName, { artist: artName });
             });
         });
+
+        // Restore expanded state for artists that were previously open
+        if (previouslyExpandedArtists && previouslyExpandedArtists.size > 0) {
+            currentLibraryArtists.forEach((art, idx) => {
+                if (previouslyExpandedArtists.has(art.name)) {
+                    toggleArtistAlbums(idx);
+                }
+            });
+        }
 
     } catch (err) {
         listEl.innerHTML = `<div class="p-4 text-center text-danger">Error loading artists: ${escapeHtml(err.message)}</div>`;
@@ -4621,16 +4635,9 @@ function initSlideLockout() {
                 showToast(`Successfully deleted ${data.deleted_tracks} tracks (freed ${data.freed_str})!`, "success");
                 modal?.classList.add("hidden");
 
-                // Refresh stats and library view
+                // Refresh stats and active library view immediately
                 loadLibraryStats();
-                const activeTab = document.querySelector(".nav-item.active")?.dataset?.tab;
-                if (activeTab === "library") {
-                    if (typeof currentLibraryViewMode !== "undefined" && currentLibraryViewMode === "artists") {
-                        loadArtistsList();
-                    } else {
-                        loadLibraryBrowser();
-                    }
-                }
+                loadLibraryActiveView();
             } else {
                 showToast(data.error || "Failed to delete library items", "error");
                 if (btnConfirm) {
