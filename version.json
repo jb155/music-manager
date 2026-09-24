@@ -1,5 +1,5 @@
 {
-  "version": "1.5.0",
+  "version": "1.5.1",
   "release_date": "2026-09-24",
-  "notes": "Added Artist search ranking by percentage match with false-positive filtering; added Album Consolidation & Deduplication to ensure minimal complete albums without duplicate songs; added balanced multi-artist playlist distribution."
+  "notes": "Added Artist search ranking by % match; added Album Edition Consolidation & Deduplication with spacious modal UI; added balanced multi-artist playlist creation; streamlined deletion modal layout with single confirm button and automatic active view refresh."
 }
