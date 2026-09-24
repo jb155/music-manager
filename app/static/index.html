@@ -1004,25 +1004,28 @@
                             <i class="fa-solid fa-lock" id="slide-lockout-icon"></i>
                         </div>
                     </div>
-                    <button type="button" class="btn-confirm-delete-unlocked mt-2" id="btn-confirm-delete-unlocked">
+                    <button type="button" class="btn-confirm-delete-unlocked" id="btn-confirm-delete-unlocked">
                         <i class="fa-solid fa-trash-can"></i> Permanently Delete Selected Items
                     </button>
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" id="btn-cancel-delete">Cancel</button>
+                <button type="button" class="btn btn-danger btn-sm" id="btn-confirm-delete-footer" style="display: none;">
+                    <i class="fa-solid fa-trash-can"></i> Permanently Delete
+                </button>
             </div>
         </div>
     </div>
 
     <!-- Subtle Version Watermark (Bottom-Left) -->
     <div class="version-watermark" id="app-version-watermark" title="Music Manager (Click to view version and update details)">
-        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.4.0
+        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.4.1
     </div>
 
     <!-- Notification Toast -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/app.js?v=1.4.0"></script>
+    <script src="/static/app.js?v=1.4.1"></script>
 </body>
 </html>

@@ -4884,6 +4884,9 @@ select option:checked,
     justify-content: center;
     z-index: 10000;
     transition: opacity 0.25s ease;
+    overflow-y: auto;
+    padding: 20px 16px;
+    box-sizing: border-box;
 }
 
 .modal-overlay.hidden {
@@ -5071,15 +5074,22 @@ select option:checked,
 .delete-modal-card {
     max-width: 680px;
     width: 94%;
+    max-height: calc(100vh - 40px);
+    display: flex;
+    flex-direction: column;
     border-color: rgba(239, 68, 68, 0.35);
     box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+    margin: auto;
 }
 
 .delete-modal-card .modal-body {
-    padding: 22px 24px;
+    padding: 18px 22px;
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 14px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .delete-impact-banner {
@@ -5171,9 +5181,9 @@ select option:checked,
     background: rgba(0, 0, 0, 0.35);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 10px;
-    max-height: 240px;
+    max-height: 170px;
     overflow-y: auto;
-    padding: 10px 12px;
+    padding: 8px 10px;
 }
 
 .delete-exclusion-item {
@@ -5251,8 +5261,8 @@ select option:checked,
 
 /* Right-to-Left Slide Lockout */
 .slide-lockout-wrapper {
-    margin-top: 18px;
-    padding-top: 14px;
+    margin-top: 8px;
+    padding-top: 8px;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -5323,18 +5333,18 @@ select option:checked,
 .btn-confirm-delete-unlocked {
     display: none;
     width: 100%;
-    height: 46px;
+    height: 48px;
     font-size: 14px;
     font-weight: 700;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    border-radius: 10px;
+    border-radius: 24px;
     background: #ef4444;
     color: #fff;
     border: none;
     cursor: pointer;
-    box-shadow: 0 4px 16px rgba(239, 68, 68, 0.45);
+    box-shadow: 0 4px 16px rgba(239, 68, 68, 0.55);
     transition: all 0.2s ease;
 }
 
@@ -5345,7 +5355,7 @@ select option:checked,
 }
 
 .btn-confirm-delete-unlocked.revealed {
-    display: inline-flex;
+    display: flex;
     animation: modal-enter 0.2s ease-out;
 }
 

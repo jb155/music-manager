@@ -4195,9 +4195,11 @@ function resetSlideLockout() {
     const text = document.getElementById("slide-lockout-text");
     const icon = document.getElementById("slide-lockout-icon");
     const btnConfirm = document.getElementById("btn-confirm-delete-unlocked");
+    const btnFooter = document.getElementById("btn-confirm-delete-footer");
 
     if (track) {
         track.classList.remove("unlocked");
+        track.style.display = "flex";
         track.style.opacity = "1";
         track.style.pointerEvents = "auto";
     }
@@ -4213,8 +4215,14 @@ function resetSlideLockout() {
     }
     if (btnConfirm) {
         btnConfirm.classList.remove("revealed");
+        btnConfirm.style.display = "none";
         btnConfirm.disabled = false;
         btnConfirm.innerHTML = `<i class="fa-solid fa-trash-can"></i> Permanently Delete Selected Items`;
+    }
+    if (btnFooter) {
+        btnFooter.style.display = "none";
+        btnFooter.disabled = false;
+        btnFooter.innerHTML = `<i class="fa-solid fa-trash-can"></i> Permanently Delete`;
     }
 }
 
@@ -4349,8 +4357,10 @@ function renderDeleteImpactUI() {
     }
 
     // If all tracks are spared/kept, disable deletion lockout
+    const btnFooter = document.getElementById("btn-confirm-delete-footer");
     if (activeTracksCount === 0) {
         if (trackLock) {
+            trackLock.style.display = "flex";
             trackLock.style.opacity = "0.4";
             trackLock.style.pointerEvents = "none";
         }
@@ -4359,14 +4369,28 @@ function renderDeleteImpactUI() {
         }
         if (confirmBtn) {
             confirmBtn.classList.remove("revealed");
+            confirmBtn.style.display = "none";
+        }
+        if (btnFooter) {
+            btnFooter.style.display = "none";
         }
     } else {
-        if (trackLock && !isSlideUnlocked) {
-            trackLock.style.opacity = "1";
-            trackLock.style.pointerEvents = "auto";
-        }
-        if (textLock && !isSlideUnlocked) {
-            textLock.innerHTML = `<i class="fa-solid fa-angles-left"></i> Slide left to unlock deletion`;
+        if (!isSlideUnlocked) {
+            if (trackLock) {
+                trackLock.style.display = "flex";
+                trackLock.style.opacity = "1";
+                trackLock.style.pointerEvents = "auto";
+            }
+            if (textLock) {
+                textLock.innerHTML = `<i class="fa-solid fa-angles-left"></i> Slide left to unlock deletion`;
+            }
+            if (confirmBtn) {
+                confirmBtn.classList.remove("revealed");
+                confirmBtn.style.display = "none";
+            }
+            if (btnFooter) {
+                btnFooter.style.display = "none";
+            }
         }
     }
 }
@@ -4441,15 +4465,27 @@ function initSlideLockout() {
     const text = document.getElementById("slide-lockout-text");
     const icon = document.getElementById("slide-lockout-icon");
     const btnConfirm = document.getElementById("btn-confirm-delete-unlocked");
+    const btnFooter = document.getElementById("btn-confirm-delete-footer");
     const modal = document.getElementById("delete-impact-modal");
     const btnClose = document.getElementById("btn-close-delete-modal");
     const btnCancel = document.getElementById("btn-cancel-delete");
 
     if (btnClose) btnClose.addEventListener("click", () => modal?.classList.add("hidden"));
     if (btnCancel) btnCancel.addEventListener("click", () => modal?.classList.add("hidden"));
+
+    let backdropMouseDown = false;
+    let dragJustEnded = false;
+
     if (modal) {
+        modal.addEventListener("mousedown", (e) => {
+            backdropMouseDown = (e.target === modal);
+        });
         modal.addEventListener("click", (e) => {
-            if (e.target === modal) modal.classList.add("hidden");
+            if (isDragging || dragJustEnded) return;
+            if (e.target === modal && backdropMouseDown) {
+                modal.classList.add("hidden");
+            }
+            backdropMouseDown = false;
         });
     }
 
@@ -4462,6 +4498,7 @@ function initSlideLockout() {
     function startDrag(e) {
         if (isSlideUnlocked) return;
         isDragging = true;
+        dragJustEnded = false;
         startX = e.type.includes("touch") ? e.touches[0].clientX : e.clientX;
         thumb.style.transition = "none";
         document.body.style.userSelect = "none";
@@ -4479,7 +4516,7 @@ function initSlideLockout() {
         const clampedDelta = Math.max(0, Math.min(deltaX, maxDrag));
         thumb.style.right = (initialRight + clampedDelta) + "px";
 
-        if (clampedDelta >= maxDrag * 0.85) {
+        if (clampedDelta >= maxDrag * 0.8) {
             track.classList.add("unlocked");
             if (icon) icon.className = "fa-solid fa-lock-open";
         } else {
@@ -4491,6 +4528,8 @@ function initSlideLockout() {
     function endDrag(e) {
         if (!isDragging || isSlideUnlocked) return;
         isDragging = false;
+        dragJustEnded = true;
+        setTimeout(() => { dragJustEnded = false; }, 300);
         document.body.style.userSelect = "";
 
         const trackWidth = track.clientWidth;
@@ -4499,14 +4538,25 @@ function initSlideLockout() {
         const currentRight = parseFloat(thumb.style.right || initialRight);
         const draggedDist = currentRight - initialRight;
 
-        if (draggedDist >= maxDrag * 0.85) {
+        if (draggedDist >= maxDrag * 0.8) {
             isSlideUnlocked = true;
             thumb.style.transition = "right 0.15s ease-out";
             thumb.style.right = (initialRight + maxDrag) + "px";
             track.classList.add("unlocked");
             if (icon) icon.className = "fa-solid fa-lock-open";
             if (text) text.innerHTML = `<i class="fa-solid fa-check"></i> Unlocked for permanent deletion`;
-            if (btnConfirm) btnConfirm.classList.add("revealed");
+
+            // Seamless in-place morph: hide track and display delete confirmation buttons
+            setTimeout(() => {
+                if (track) track.style.display = "none";
+                if (btnConfirm) {
+                    btnConfirm.style.display = "flex";
+                    btnConfirm.classList.add("revealed");
+                }
+                if (btnFooter) {
+                    btnFooter.style.display = "inline-flex";
+                }
+            }, 180);
         } else {
             thumb.style.transition = "right 0.25s ease-out";
             thumb.style.right = initialRight + "px";
@@ -4528,64 +4578,87 @@ function initSlideLockout() {
     window.addEventListener("touchmove", doDrag, { passive: true });
     window.addEventListener("touchend", endDrag);
 
-    // Action button
-    if (btnConfirm) {
-        btnConfirm.addEventListener("click", async () => {
-            if (!isSlideUnlocked || !currentDeleteImpact) return;
+    // Shared execution function
+    async function executeDeletion() {
+        if (!isSlideUnlocked || !currentDeleteImpact) return;
 
-            const tracksToDelete = [];
-            (currentDeleteImpact.albums || []).forEach(alb => {
-                (alb.tracks || []).forEach(t => {
-                    if (!excludedTrackIds.has(t.id)) {
-                        tracksToDelete.push(t.id);
-                    }
-                });
+        const tracksToDelete = [];
+        (currentDeleteImpact.albums || []).forEach(alb => {
+            (alb.tracks || []).forEach(t => {
+                if (!excludedTrackIds.has(t.id)) {
+                    tracksToDelete.push(t.id);
+                }
             });
+        });
 
-            if (tracksToDelete.length === 0) {
-                showToast("All items were spared. Nothing to delete.", "info");
-                modal?.classList.add("hidden");
-                return;
-            }
+        if (tracksToDelete.length === 0) {
+            showToast("All items were spared. Nothing to delete.", "info");
+            modal?.classList.add("hidden");
+            return;
+        }
 
+        if (btnConfirm) {
             btnConfirm.disabled = true;
             btnConfirm.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i> Permanently Deleting ${tracksToDelete.length} Songs...`;
+        }
+        if (btnFooter) {
+            btnFooter.disabled = true;
+            btnFooter.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i> Deleting...`;
+        }
 
-            try {
-                const res = await fetch("/api/library/delete", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        track_ids: tracksToDelete,
-                        delete_files: true
-                    })
-                });
+        try {
+            const res = await fetch("/api/library/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    track_ids: tracksToDelete,
+                    delete_files: true
+                })
+            });
 
-                const data = await res.json();
-                if (res.ok && data.success) {
-                    showToast(`Successfully deleted ${data.deleted_tracks} tracks (freed ${data.freed_str})!`, "success");
-                    modal?.classList.add("hidden");
+            const data = await res.json();
+            if (res.ok && data.success) {
+                showToast(`Successfully deleted ${data.deleted_tracks} tracks (freed ${data.freed_str})!`, "success");
+                modal?.classList.add("hidden");
 
-                    // Refresh stats and library view
-                    loadStats();
-                    const activeTab = document.querySelector(".nav-item.active")?.dataset?.tab;
-                    if (activeTab === "library") {
-                        if (typeof currentLibraryViewMode !== "undefined" && currentLibraryViewMode === "artists") {
-                            loadArtistsList();
-                        } else {
-                            loadLibraryBrowser();
-                        }
+                // Refresh stats and library view
+                loadLibraryStats();
+                const activeTab = document.querySelector(".nav-item.active")?.dataset?.tab;
+                if (activeTab === "library") {
+                    if (typeof currentLibraryViewMode !== "undefined" && currentLibraryViewMode === "artists") {
+                        loadArtistsList();
+                    } else {
+                        loadLibraryBrowser();
                     }
-                } else {
-                    showToast(data.error || "Failed to delete library items", "error");
+                }
+            } else {
+                showToast(data.error || "Failed to delete library items", "error");
+                if (btnConfirm) {
                     btnConfirm.disabled = false;
                     btnConfirm.innerHTML = `<i class="fa-solid fa-trash-can"></i> Permanently Delete Selected Items`;
                 }
-            } catch (err) {
-                showToast("Network error executing deletion: " + err.message, "error");
+                if (btnFooter) {
+                    btnFooter.disabled = false;
+                    btnFooter.innerHTML = `<i class="fa-solid fa-trash-can"></i> Permanently Delete`;
+                }
+            }
+        } catch (err) {
+            showToast("Network error executing deletion: " + err.message, "error");
+            if (btnConfirm) {
                 btnConfirm.disabled = false;
                 btnConfirm.innerHTML = `<i class="fa-solid fa-trash-can"></i> Permanently Delete Selected Items`;
             }
-        });
+            if (btnFooter) {
+                btnFooter.disabled = false;
+                btnFooter.innerHTML = `<i class="fa-solid fa-trash-can"></i> Permanently Delete`;
+            }
+        }
+    }
+
+    if (btnConfirm) {
+        btnConfirm.addEventListener("click", executeDeletion);
+    }
+    if (btnFooter) {
+        btnFooter.addEventListener("click", executeDeletion);
     }
 }
