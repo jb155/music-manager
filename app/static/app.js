@@ -4779,11 +4779,15 @@ function renderConsolidationUI(data) {
     const groupsList = document.getElementById("consolidate-groups-list");
     const btnConfirm = document.getElementById("btn-confirm-consolidate");
 
-    const totalRedundant = data.redundant_groups_count || 0;
+    const totalRedundant = data.groups_count ?? data.redundant_groups_count ?? (data.groups ? data.groups.length : 0);
+    const totalVariants = data.total_variant_editions ?? data.total_variants_to_prune ?? 0;
+    const totalDups = data.total_duplicate_tracks ?? 0;
+    const freedStr = data.freed_str ?? data.estimated_freed_str ?? "0 B";
+
     if (statGroups) statGroups.textContent = totalRedundant;
-    if (statVariants) statVariants.textContent = data.total_variants_to_prune || 0;
-    if (statDups) statDups.textContent = data.total_duplicate_tracks || 0;
-    if (statFreed) statFreed.textContent = data.estimated_freed_str || "0 B";
+    if (statVariants) statVariants.textContent = totalVariants;
+    if (statDups) statDups.textContent = totalDups;
+    if (statFreed) statFreed.textContent = freedStr;
 
     if (totalRedundant === 0) {
         if (subtitleEl) subtitleEl.textContent = `All albums are already minimal and complete with zero duplicate editions.`;
@@ -4791,57 +4795,78 @@ function renderConsolidationUI(data) {
             groupsList.innerHTML = `
                 <div class="p-4 text-center text-muted">
                     <i class="fa-solid fa-circle-check fa-2x mb-2 text-success" style="opacity: 0.8;"></i>
-                    <p style="font-weight: 500;">No duplicate album editions found for ${escapeHtml(data.artist)}.</p>
+                    <p style="font-weight: 500;">No duplicate album editions found for ${escapeHtml(data.artist || "")}.</p>
                     <p class="text-xs text-muted">Each album in your vault for this artist is already a distinct, minimal release.</p>
                 </div>
             `;
         }
-        if (btnConfirm) btnConfirm.disabled = true;
+        if (btnConfirm) {
+            btnConfirm.disabled = true;
+            btnConfirm.innerHTML = `<i class="fa-solid fa-check"></i> Already Consolidated`;
+        }
         return;
     }
 
     if (subtitleEl) {
-        subtitleEl.textContent = `Found ${totalRedundant} album sets with ${data.total_variants_to_prune} redundant variants and ${data.total_duplicate_tracks} duplicate tracks to clean.`;
+        subtitleEl.textContent = `Found ${totalRedundant} album sets with ${totalVariants} redundant variants and ${totalDups} duplicate tracks to clean.`;
     }
 
     if (btnConfirm) {
         btnConfirm.disabled = false;
-        btnConfirm.innerHTML = `<i class="fa-solid fa-compress"></i> Consolidate (${data.total_duplicate_tracks} Duplicates)`;
+        btnConfirm.innerHTML = `<i class="fa-solid fa-compress"></i> Consolidate (${totalRedundant} Album Sets &amp; ${totalDups} Duplicates)`;
     }
 
     if (groupsList) {
-        groupsList.innerHTML = data.groups.map(group => `
-            <div class="consolidate-group-card">
-                <div class="group-header">
-                    <div>
-                        <h5 class="group-title"><i class="fa-solid fa-compact-disc text-primary"></i> ${escapeHtml(group.base_name)}</h5>
-                        <div class="group-sub text-xs text-muted">
-                            Primary Album: <strong class="text-success">${escapeHtml(group.primary_album.name)}</strong> (${group.primary_album.track_count} tracks)
-                            &bull; Redundant Variants: <strong>${group.variant_albums.map(v => escapeHtml(v.name)).join(", ")}</strong>
+        groupsList.innerHTML = (data.groups || []).map(group => {
+            const baseName = group.base_name || group.base_album || "Unknown Album";
+            const primaryName = group.primary_album_name || group.primary_album || "Primary Album";
+            const primaryTracks = group.primary_track_count || (group.primary_album?.track_count) || 0;
+
+            const editions = group.other_editions || group.variant_albums || [];
+            const variantNames = editions.map(e => e.album || e.name || "Variant");
+
+            const allDups = editions.flatMap(e => e.duplicate_tracks || []);
+            const allUniques = editions.flatMap(e => e.unique_tracks || []);
+            const dupCount = group.duplicate_tracks_count ?? allDups.length;
+            const uniqueCount = group.unique_bonus_tracks_count ?? allUniques.length;
+            const groupFreed = group.freed_str || formatBytes(allDups.reduce((s, t) => s + (t.size_bytes || 0), 0));
+
+            return `
+                <div class="consolidate-group-card">
+                    <div class="consolidate-group-header">
+                        <div>
+                            <h5 class="consolidate-group-title">
+                                <i class="fa-solid fa-compact-disc text-primary"></i>
+                                <span style="text-transform: capitalize;">${escapeHtml(baseName)}</span>
+                            </h5>
+                            <div class="text-xs text-muted mt-1">
+                                <span class="consolidate-primary-badge"><i class="fa-solid fa-star"></i> Primary: ${escapeHtml(primaryName)} (${primaryTracks} trk)</span>
+                                &bull; Variants to merge: <strong class="text-warning">${variantNames.map(v => escapeHtml(v)).join(", ")}</strong>
+                            </div>
+                        </div>
+                        <div class="consolidate-group-badges">
+                            ${dupCount > 0 ? `<span class="badge badge-danger"><i class="fa-solid fa-trash-can"></i> ${dupCount} duplicate files</span>` : ''}
+                            ${uniqueCount > 0 ? `<span class="badge badge-success"><i class="fa-solid fa-code-merge"></i> ${uniqueCount} bonus tracks</span>` : ''}
+                            <span class="badge badge-muted">${escapeHtml(groupFreed)}</span>
                         </div>
                     </div>
-                    <div class="group-badge-wrap">
-                        <span class="badge badge-danger">${group.duplicate_tracks_count} duplicates to delete</span>
-                        ${group.unique_bonus_tracks_count > 0 ? `<span class="badge badge-success">${group.unique_bonus_tracks_count} bonus tracks to merge</span>` : ''}
-                        <span class="badge badge-muted">${group.freed_str} freed</span>
+                    <div class="consolidate-group-details">
+                        ${dupCount > 0 ? `
+                            <div>
+                                <strong class="text-danger"><i class="fa-solid fa-trash-can"></i> Duplicate files to remove:</strong>
+                                <span class="text-muted">${allDups.slice(0, 6).map(t => escapeHtml(t.title)).join(", ")}${allDups.length > 6 ? ` <em>(+${allDups.length - 6} more)</em>` : ''}</span>
+                            </div>
+                        ` : ''}
+                        ${uniqueCount > 0 ? `
+                            <div>
+                                <strong class="text-success"><i class="fa-solid fa-share-nodes"></i> Unique bonus tracks to retain &amp; merge into primary album:</strong>
+                                <span class="text-muted">${allUniques.slice(0, 6).map(t => escapeHtml(t.title)).join(", ")}${allUniques.length > 6 ? ` <em>(+${allUniques.length - 6} more)</em>` : ''}</span>
+                            </div>
+                        ` : ''}
                     </div>
                 </div>
-                <div class="group-details mt-2">
-                    ${group.duplicate_tracks_count > 0 ? `
-                        <div class="text-xs text-muted mb-1">
-                            <span class="text-danger" style="font-weight: 600;"><i class="fa-solid fa-trash-can"></i> Duplicate files to remove:</span>
-                            ${group.duplicate_tracks.slice(0, 6).map(t => escapeHtml(t.title)).join(", ")}${group.duplicate_tracks.length > 6 ? ` <em>(+${group.duplicate_tracks.length - 6} more)</em>` : ''}
-                        </div>
-                    ` : ''}
-                    ${group.unique_bonus_tracks_count > 0 ? `
-                        <div class="text-xs text-muted">
-                            <span class="text-success" style="font-weight: 600;"><i class="fa-solid fa-share-nodes"></i> Unique bonus tracks to retain &amp; merge into primary album:</span>
-                            ${group.unique_tracks.slice(0, 6).map(t => escapeHtml(t.title)).join(", ")}${group.unique_tracks.length > 6 ? ` <em>(+${group.unique_tracks.length - 6} more)</em>` : ''}
-                        </div>
-                    ` : ''}
-                </div>
-            </div>
-        `).join("");
+            `;
+        }).join("");
     }
 }
 

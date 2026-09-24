@@ -3633,21 +3633,32 @@ paths:
         """Normalize an album name by stripping edition tags to identify the core release."""
         if not album_name:
             return ""
-        a = album_name.lower().strip()
-        a = re.sub(
-            r'\s*[\[\(](?:deluxe|collector|special|bonus|expanded|remaster|anniversary|original soundtrack|soundtrack|super deluxe|edition|version|disc|cd)[^\]\)]*[\]\)]',
+        name = album_name.lower().strip()
+        # Remove anything in brackets or parentheses that suggests edition/remaster/deluxe
+        name = re.sub(r'\[.*?\]', '', name)
+        name = re.sub(
+            r'\(.*?(?:deluxe|super\s+deluxe|remaster(?:ed)?|edition|version|bonus|expanded|collector(?:\'s)?|special|anniversary|soundtrack|ost|legacy|tour|international|unplugged|sessions?|live|mono|stereo|mix|explicit|clean).*?\)',
             '',
-            a,
+            name,
             flags=re.IGNORECASE
         )
-        a = re.sub(
-            r'\s*[-:]\s*(?:original soundtrack|deluxe edition|special edition|remastered|anniversary edition).*$',
+        # Remove trailing dash/colon clauses
+        name = re.sub(
+            r'\s*[-:\u2013\u2014]\s*(?:(?:original\s+)?(?:motion\s+picture\s+)?soundtrack|ost|deluxe|super\s+deluxe|remaster(?:ed)?|edition|version|bonus|expanded|collector(?:\'s)?|special|anniversary|legacy).*$',
             '',
-            a,
+            name,
             flags=re.IGNORECASE
         )
-        a = re.sub(r'[\W_]+', ' ', a).strip()
-        return a
+        name = re.sub(
+            r'\s+(?:deluxe|remaster(?:ed)?|edition|version|bonus|expanded|collector(?:\'s)?|soundtrack)(?:\s+(?:edition|version|release))?$',
+            '',
+            name,
+            flags=re.IGNORECASE
+        )
+        # Clean up any leftover punctuation or multiple spaces
+        name = re.sub(r'[^\w\s]', ' ', name)
+        name = re.sub(r'\s+', ' ', name).strip()
+        return name if name else album_name.lower().strip()
 
     @staticmethod
     def normalize_track_title_for_dedup(title: str) -> str:
@@ -3715,7 +3726,11 @@ paths:
                     # Choose primary edition: highest track count, prefer standard over deluxe if equal
                     sorted_editions = sorted(
                         editions.items(),
-                        key=lambda x: (len(x[1]), not any(w in x[0].lower() for w in ['deluxe', 'collector', 'special', 'expanded', 'soundtrack'])),
+                        key=lambda x: (
+                            len(x[1]),
+                            not any(w in x[0].lower() for w in ['deluxe', 'collector', 'special', 'expanded', 'soundtrack']),
+                            -len(x[0])
+                        ),
                         reverse=True
                     )
                     primary_name, primary_tracks = sorted_editions[0]
@@ -3770,14 +3785,31 @@ paths:
                             'unique_tracks': uniques
                         })
 
+                    group_dups_count = sum(len(e['duplicate_tracks']) for e in other_editions)
+                    group_uniques_count = sum(len(e['unique_tracks']) for e in other_editions)
+                    group_bytes = sum(sum(t['size_bytes'] for t in e['duplicate_tracks']) for e in other_editions)
+                    if group_bytes >= 1024 * 1024 * 1024:
+                        group_freed_str = f"{group_bytes / (1024 * 1024 * 1024):.2f} GB"
+                    elif group_bytes >= 1024 * 1024:
+                        group_freed_str = f"{group_bytes / (1024 * 1024):.1f} MB"
+                    else:
+                        group_freed_str = f"{group_bytes / 1024:.1f} KB"
+
                     groups_res.append({
                         'artist': art,
+                        'base_name': base,
                         'base_album': base,
                         'primary_album': primary_name,
+                        'primary_album_name': primary_name,
                         'primary_album_id': primary_album_id,
                         'primary_year': primary_year,
                         'primary_track_count': len(primary_tracks),
-                        'other_editions': other_editions
+                        'variant_albums': [{'name': e['album'], 'track_count': e['track_count'], 'id': e['album_id']} for e in other_editions],
+                        'other_editions': other_editions,
+                        'duplicate_tracks_count': group_dups_count,
+                        'unique_bonus_tracks_count': group_uniques_count,
+                        'freed_bytes': group_bytes,
+                        'freed_str': group_freed_str
                     })
 
             # Sort groups by artist then base album
@@ -3794,15 +3826,20 @@ paths:
                 "success": True,
                 "artist": artist_name,
                 "groups_count": len(groups_res),
+                "redundant_groups_count": len(groups_res),
                 "total_variant_editions": total_variants,
+                "total_variants_to_prune": total_variants,
                 "total_duplicate_tracks": total_dups,
                 "total_unique_tracks_to_merge": total_merges,
                 "total_bytes_freed": total_bytes,
+                "estimated_freed_bytes": total_bytes,
                 "freed_str": freed_str,
+                "estimated_freed_str": freed_str,
                 "groups": groups_res
             }
         except Exception as e:
             logger.error(f"Error in analyze_album_consolidation: {e}", exc_info=True)
+            return {"success": False, "error": str(e), "groups": []}
             return {"success": False, "error": str(e), "groups": []}
 
     def execute_album_consolidation(
@@ -3909,6 +3946,7 @@ paths:
                 "success": True,
                 "artist": artist_name,
                 "processed_groups": len(groups_to_process),
+                "consolidated_groups": len(groups_to_process),
                 "deleted_tracks": deleted_tracks_count,
                 "deleted_files": deleted_files_count,
                 "merged_tracks": merged_tracks_count,
