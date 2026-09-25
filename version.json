@@ -1,5 +1,5 @@
 {
-  "version": "1.5.2",
-  "release_date": "2026-09-24",
-  "notes": "Added support for all library artists as anchor artists with instant search filter, show all/top toggle, and multi-artist anchor focus selection; replaced hardcoded style presets with dynamic style focus recommendations generated directly from user's Beets library genres and artist clusters."
+  "version": "1.5.5",
+  "release_date": "2026-09-25",
+  "notes": "Enhanced Quick Music Downloader artist discovery: broad artist queries (such as 'Jackson') now return all matching artists strictly ranked by percentage match with in-library track badges, preventing single-word exact match lockouts."
 }
