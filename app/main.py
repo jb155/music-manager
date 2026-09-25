@@ -37,7 +37,7 @@ except Exception:
     pass
 
 
-APP_VERSION = "1.5.4"
+APP_VERSION = "1.5.5"
 
 app = FastAPI(title="Music Manager Web", version=APP_VERSION)
 

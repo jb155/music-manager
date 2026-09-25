@@ -3572,61 +3572,57 @@ paths:
         """Calculate match percentage score (0.0 to 100.0) for an artist name against search query."""
         if not query or not artist_name:
             return 0.0
-        q = query.strip().lower()
-        a = artist_name.strip().lower()
-        if not q or not a:
+
+        def canon(s: str) -> str:
+            s = s.lower().strip()
+            if s.startswith("the "):
+                s = s[4:].strip()
+            s = s.replace("&", "and")
+            s = re.sub(r'[^\w\s]', '', s)
+            return re.sub(r'\s+', ' ', s).strip()
+
+        clean_q = canon(query)
+        clean_a = canon(artist_name)
+        if not clean_q or not clean_a:
             return 0.0
 
-        if a == q:
-            return 100.0
-
-        def strip_the(s: str) -> str:
-            return s[4:].strip() if s.startswith("the ") else s
-
-        clean_q = strip_the(q)
-        clean_a = strip_the(a)
-
+        # Exact match
         if clean_a == clean_q:
-            return 98.0
+            return 100.0
 
         words = re.findall(r'\b\w+\b', clean_a)
         q_words = re.findall(r'\b\w+\b', clean_q)
 
-        # All query words present in artist name
-        if q_words and all(qw in words for qw in q_words):
-            ratio = len(clean_q) / max(1, len(clean_a))
-            return round(88.0 + 10.0 * ratio, 1)
+        # All query words present as full words in artist name (e.g. "michael jackson" in "the michael jackson experience")
+        if q_words and len(q_words) > 1 and all(qw in words for qw in q_words):
+            return 96.0
 
-        # Query is an exact word in artist name (e.g. 'jackson' in 'michael jackson')
+        # Query is a single word and matches a full word in artist name (e.g. "jackson" in "michael jackson", "jackson 5")
         if clean_q in words:
-            ratio = len(clean_q) / max(1, len(clean_a))
-            return round(85.0 + 12.0 * ratio, 1)
+            return 95.0
 
-        # Starts with query (e.g. 'queens of the stone age')
-        if clean_a.startswith(clean_q):
-            ratio = len(clean_q) / max(1, len(clean_a))
-            return round(78.0 + 15.0 * ratio, 1)
+        # Plural / singular counterpart (e.g. "jackson" vs "jacksons", "eagle" vs "eagles")
+        if clean_a == clean_q + "s" or clean_q == clean_a + "s":
+            return 95.0
 
-        # Any word starts with query
+        # Any word in artist starts with the query word (e.g. "micha" -> "michael jackson")
         for w in words:
-            if w.startswith(clean_q):
-                ratio = len(clean_q) / max(1, len(clean_a))
-                return round(72.0 + 12.0 * ratio, 1)
+            if w.startswith(clean_q) and len(clean_q) >= 3:
+                ratio = len(clean_q) / max(1, len(w))
+                return round(80.0 + 10.0 * ratio, 1)
 
-        # Word-level fuzzy similarity for typos (e.g. 'micheal' in 'michael jackson')
+        # Word-level fuzzy similarity for typos (e.g. "micheal" in "michael jackson")
         best_word_sim = 0.0
         for w in words:
             w_sim = difflib.SequenceMatcher(None, clean_q, w).ratio() * 100.0
             if w_sim > best_word_sim:
                 best_word_sim = w_sim
         if best_word_sim >= 75.0:
-            ratio = len(clean_q) / max(1, len(clean_a))
-            return round(best_word_sim * 0.9 + 10.0 * ratio, 1)
+            return round(best_word_sim * 0.9, 1)
 
         # Substring match
         if clean_q in clean_a:
-            ratio = len(clean_q) / max(1, len(clean_a))
-            return round(60.0 + 15.0 * ratio, 1)
+            return 70.0
 
         # Fuzzy sequence similarity for minor typos
         sim = difflib.SequenceMatcher(None, clean_q, clean_a).ratio() * 100.0
@@ -3735,27 +3731,25 @@ paths:
                     name = r[0]
                     score = self.calculate_artist_match_score(clean_q, name)
                     if score > 0:
-                        t_count = r[1]
-                        rank_score = score + min(15.0, math.log10(max(1, t_count)) * 5.0)
-                        scored_rows.append((score, rank_score, r))
+                        scored_rows.append((score, r))
 
-                # If sorting by artist or relevance (default search behavior), sort primarily by % match + library collection size!
+                # If sorting by artist or relevance (default search behavior), sort primarily by % match!
                 if s_by in ("artist", "relevance", "match") or not s_by:
-                    scored_rows.sort(key=lambda x: (x[1], x[0], x[2][1]), reverse=True)
+                    scored_rows.sort(key=lambda x: (x[0], x[1][1]), reverse=True)
                 elif s_by in ("album", "albums"):
-                    scored_rows.sort(key=lambda x: x[2][2], reverse=(order_dir == "DESC"))
+                    scored_rows.sort(key=lambda x: x[1][2], reverse=(order_dir == "DESC"))
                 elif s_by in ("title", "track", "tracks"):
-                    scored_rows.sort(key=lambda x: x[2][1], reverse=(order_dir == "DESC"))
+                    scored_rows.sort(key=lambda x: x[1][1], reverse=(order_dir == "DESC"))
                 elif s_by in ("year", "era"):
-                    scored_rows.sort(key=lambda x: x[2][5] or 0, reverse=(order_dir == "DESC"))
+                    scored_rows.sort(key=lambda x: x[1][5] or 0, reverse=(order_dir == "DESC"))
                 elif s_by in ("added", "recent"):
-                    scored_rows.sort(key=lambda x: x[2][6] or 0, reverse=(order_dir == "DESC"))
+                    scored_rows.sort(key=lambda x: x[1][6] or 0, reverse=(order_dir == "DESC"))
 
                 total_artists = len(scored_rows)
                 page_rows = scored_rows[offset:offset + limit]
 
                 artists = []
-                for score, rank_score, r in page_rows:
+                for score, r in page_rows:
                     name, t_count, a_count, g, min_y, max_y, _ = r
                     year_str = ""
                     if min_y and max_y:
@@ -6003,15 +5997,12 @@ paths:
             art_id = r.get("artistId")
             art_canon = canonicalize_art(artist_name)
 
-            dedup_key = (art_canon, genre.lower())
+            dedup_key = art_canon
             if dedup_key in seen:
                 continue
             seen.add(dedup_key)
 
             score = self.calculate_artist_match_score(q, artist_name)
-            art_words = re.findall(r'\b\w+\b', art_canon)
-            if q_words and all(qw in art_words for qw in q_words) and score < 88.0:
-                score = max(score, round(85.0 + 10.0 * (len(canon_q) / max(1, len(art_canon))), 1))
 
             # Include any artist with a decent match score (>= 50%)
             if score < 50.0:
@@ -6020,14 +6011,6 @@ paths:
             lib_stats = self.get_artist_library_stats(artist_name)
             in_lib_tracks = lib_stats.get("total_tracks", 0)
 
-            # Ranking calculation:
-            # - Base match score
-            # - Boost for artists already in user's library
-            # - iTunes popularity position weight (iTunes returns top artists first)
-            popularity_bonus = max(0.0, 10.0 - idx * 0.5)
-            library_bonus = 15.0 if in_lib_tracks > 0 else 0.0
-            total_rank = score + popularity_bonus + library_bonus
-
             candidates.append({
                 "id": art_id,
                 "name": artist_name,
@@ -6035,7 +6018,7 @@ paths:
                 "match_percent": score,
                 "in_library_tracks": in_lib_tracks,
                 "library_stats": lib_stats,
-                "rank": total_rank,
+                "rank": score,
                 "is_exact": (art_canon == canon_q),
                 "itunes_index": idx
             })
@@ -6043,8 +6026,9 @@ paths:
         if not candidates:
             return {"match_type": "none", "query": q}
 
-        # Sort candidates primarily by total_rank
-        candidates.sort(key=lambda x: x["rank"], reverse=True)
+        # Sort candidates strictly by % match descending!
+        # Tie-breakers when % match is equal: in_library_tracks (desc), then iTunes index (asc)
+        candidates.sort(key=lambda x: (x["match_percent"], x["in_library_tracks"], -x["itunes_index"]), reverse=True)
 
         top_cand = candidates[0]
         other_strong_matches = [c for c in candidates[1:] if c["match_percent"] >= 75.0]
@@ -6071,7 +6055,7 @@ paths:
             return {
                 "match_type": "partial",
                 "query": q,
-                "artists": candidates[:10]
+                "artists": candidates[:16]
             }
 
     async def download_batch_albums(self, artist: str, albums: List[Dict[str, Any]], auto_import: bool = True, auto_complete_album: bool = True) -> Dict[str, Any]:

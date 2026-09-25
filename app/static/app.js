@@ -3882,6 +3882,13 @@ let currentChecklistAlbums = [];
 let cachedArtistChoices = null;
 
 function renderArtistChoices(artists, query, autoImport, autoComplete) {
+    if (Array.isArray(artists)) {
+        artists.sort((a, b) => {
+            const pDiff = (b.match_percent || 0) - (a.match_percent || 0);
+            if (Math.abs(pDiff) > 0.01) return pDiff;
+            return (b.in_library_tracks || 0) - (a.in_library_tracks || 0);
+        });
+    }
     cachedArtistChoices = { artists, query, autoImport, autoComplete };
     const sec = document.getElementById("artist-discography-section");
     if (!sec) return;
