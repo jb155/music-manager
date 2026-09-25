@@ -3580,30 +3580,56 @@ paths:
         if a == q:
             return 100.0
 
-        # Exact word match (e.g. 'queen' in 'the queen' or 'queen + paul rodgers')
-        words = re.findall(r'\b\w+\b', a)
-        if q in words:
-            ratio = len(q) / max(1, len(a))
+        def strip_the(s: str) -> str:
+            return s[4:].strip() if s.startswith("the ") else s
+
+        clean_q = strip_the(q)
+        clean_a = strip_the(a)
+
+        if clean_a == clean_q:
+            return 98.0
+
+        words = re.findall(r'\b\w+\b', clean_a)
+        q_words = re.findall(r'\b\w+\b', clean_q)
+
+        # All query words present in artist name
+        if q_words and all(qw in words for qw in q_words):
+            ratio = len(clean_q) / max(1, len(clean_a))
             return round(88.0 + 10.0 * ratio, 1)
 
-        # Starts with query (e.g. 'queens of the stone age' or 'queensrÿche')
-        if a.startswith(q):
-            ratio = len(q) / max(1, len(a))
-            return round(80.0 + 15.0 * ratio, 1)
+        # Query is an exact word in artist name (e.g. 'jackson' in 'michael jackson')
+        if clean_q in words:
+            ratio = len(clean_q) / max(1, len(clean_a))
+            return round(85.0 + 12.0 * ratio, 1)
+
+        # Starts with query (e.g. 'queens of the stone age')
+        if clean_a.startswith(clean_q):
+            ratio = len(clean_q) / max(1, len(clean_a))
+            return round(78.0 + 15.0 * ratio, 1)
 
         # Any word starts with query
         for w in words:
-            if w.startswith(q):
-                ratio = len(q) / max(1, len(a))
-                return round(72.0 + 10.0 * ratio, 1)
+            if w.startswith(clean_q):
+                ratio = len(clean_q) / max(1, len(clean_a))
+                return round(72.0 + 12.0 * ratio, 1)
+
+        # Word-level fuzzy similarity for typos (e.g. 'micheal' in 'michael jackson')
+        best_word_sim = 0.0
+        for w in words:
+            w_sim = difflib.SequenceMatcher(None, clean_q, w).ratio() * 100.0
+            if w_sim > best_word_sim:
+                best_word_sim = w_sim
+        if best_word_sim >= 75.0:
+            ratio = len(clean_q) / max(1, len(clean_a))
+            return round(best_word_sim * 0.9 + 10.0 * ratio, 1)
 
         # Substring match
-        if q in a:
-            ratio = len(q) / max(1, len(a))
+        if clean_q in clean_a:
+            ratio = len(clean_q) / max(1, len(clean_a))
             return round(60.0 + 15.0 * ratio, 1)
 
-        # Fuzzy sequence similarity for minor typos (e.g. 'queeen')
-        sim = difflib.SequenceMatcher(None, q, a).ratio() * 100.0
+        # Fuzzy sequence similarity for minor typos
+        sim = difflib.SequenceMatcher(None, clean_q, clean_a).ratio() * 100.0
         if sim >= 65.0:
             return round(sim, 1)
 
@@ -3680,6 +3706,28 @@ paths:
                 """
                 c.execute(query_sql, sql_params)
                 all_rows = c.fetchall()
+
+                # Fallback: if LIKE query returned 0 rows, check distinct artists with fuzzy sequence matcher for typos (e.g. 'micheal jackson')
+                if not all_rows:
+                    fallback_sql = """
+                        SELECT 
+                            COALESCE(NULLIF(items.albumartist, ''), items.artist) as artist_name,
+                            COUNT(DISTINCT items.id) as track_count,
+                            COUNT(DISTINCT NULLIF(lower(items.album), '')) as album_count,
+                            MAX(items.genre) as top_genre,
+                            MIN(NULLIF(items.year, 0)) as min_year,
+                            MAX(items.year) as max_year,
+                            MAX(items.added) as max_added
+                        FROM items
+                        WHERE items.length > 10 AND COALESCE(NULLIF(items.albumartist, ''), items.artist) != ''
+                        GROUP BY lower(artist_name)
+                    """
+                    c.execute(fallback_sql)
+                    for r in c.fetchall():
+                        s = self.calculate_artist_match_score(clean_q, r[0])
+                        if s >= 60.0:
+                            all_rows.append(r)
+
                 conn.close()
 
                 scored_rows = []
@@ -3687,25 +3735,27 @@ paths:
                     name = r[0]
                     score = self.calculate_artist_match_score(clean_q, name)
                     if score > 0:
-                        scored_rows.append((score, r))
+                        t_count = r[1]
+                        rank_score = score + min(15.0, math.log10(max(1, t_count)) * 5.0)
+                        scored_rows.append((score, rank_score, r))
 
-                # If sorting by artist or relevance (default search behavior), sort primarily by % match!
+                # If sorting by artist or relevance (default search behavior), sort primarily by % match + library collection size!
                 if s_by in ("artist", "relevance", "match") or not s_by:
-                    scored_rows.sort(key=lambda x: (x[0], x[1][1], -len(x[1][0])), reverse=True)
+                    scored_rows.sort(key=lambda x: (x[1], x[0], x[2][1]), reverse=True)
                 elif s_by in ("album", "albums"):
-                    scored_rows.sort(key=lambda x: x[1][2], reverse=(order_dir == "DESC"))
+                    scored_rows.sort(key=lambda x: x[2][2], reverse=(order_dir == "DESC"))
                 elif s_by in ("title", "track", "tracks"):
-                    scored_rows.sort(key=lambda x: x[1][1], reverse=(order_dir == "DESC"))
+                    scored_rows.sort(key=lambda x: x[2][1], reverse=(order_dir == "DESC"))
                 elif s_by in ("year", "era"):
-                    scored_rows.sort(key=lambda x: x[1][5] or 0, reverse=(order_dir == "DESC"))
+                    scored_rows.sort(key=lambda x: x[2][5] or 0, reverse=(order_dir == "DESC"))
                 elif s_by in ("added", "recent"):
-                    scored_rows.sort(key=lambda x: x[1][6] or 0, reverse=(order_dir == "DESC"))
+                    scored_rows.sort(key=lambda x: x[2][6] or 0, reverse=(order_dir == "DESC"))
 
                 total_artists = len(scored_rows)
                 page_rows = scored_rows[offset:offset + limit]
 
                 artists = []
-                for score, r in page_rows:
+                for score, rank_score, r in page_rows:
                     name, t_count, a_count, g, min_y, max_y, _ = r
                     year_str = ""
                     if min_y and max_y:
@@ -3715,6 +3765,7 @@ paths:
 
                     artists.append({
                         "name": name,
+                        "artist": name,
                         "track_count": t_count,
                         "album_count": max(1, a_count),
                         "genre": g or "Music",
@@ -3786,6 +3837,7 @@ paths:
 
                 artists.append({
                     "name": name,
+                    "artist": name,
                     "track_count": t_count,
                     "album_count": max(1, a_count),
                     "genre": g or "Music",
@@ -5903,16 +5955,16 @@ paths:
         return {"album_id": album_id, "tracks": tracks}
 
     def check_artist_and_discography(self, query: str) -> Dict[str, Any]:
-        """Search for artist: returns exact discography match or list of candidate artists."""
+        """Search for artist: returns exact discography match or ranked list of matching candidate artists."""
         import urllib.request
         import urllib.parse
         import json
+        import re
+        import difflib
 
         q = query.strip()
         if not q:
             return {"match_type": "none", "query": q}
-
-        import re
 
         def canonicalize_art(s: str) -> str:
             s = s.lower().strip()
@@ -5924,7 +5976,10 @@ paths:
             return s
 
         canon_q = canonicalize_art(q)
-        url = f"https://itunes.apple.com/search?term={urllib.parse.quote(q)}&entity=musicArtist&limit=8"
+        q_words = re.findall(r'\b\w+\b', canon_q)
+
+        # Increase limit from 8 to 25 so all legitimate matching artists are fetched
+        url = f"https://itunes.apple.com/search?term={urllib.parse.quote(q)}&entity=musicArtist&limit=25"
         req = urllib.request.Request(url, headers={"User-Agent": "MusicManager/1.5"})
         try:
             with urllib.request.urlopen(req, timeout=12) as resp:
@@ -5937,49 +5992,86 @@ paths:
         if not results:
             return {"match_type": "none", "query": q}
 
-        exact = None
         candidates = []
-
-        # Check if the #1 top result is a plural or exact counterpart (e.g. 'Eagle' -> 'Eagles')
-        top_name = results[0].get("artistName", "").strip() if results else ""
-        top_canon = canonicalize_art(top_name)
-        has_plural_clash = (canon_q + "s" == top_canon) or (top_canon + "s" == canon_q)
+        seen = set()
 
         for idx, r in enumerate(results):
             artist_name = r.get("artistName", "").strip()
-            art_canon = canonicalize_art(artist_name)
-            art_id = r.get("artistId")
+            if not artist_name:
+                continue
             genre = r.get("primaryGenreName", "Music")
+            art_id = r.get("artistId")
+            art_canon = canonicalize_art(artist_name)
 
-            is_exact = (art_canon == canon_q)
+            dedup_key = (art_canon, genre.lower())
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
 
-            # If exact match found and no top-result plural ambiguity
-            if is_exact and exact is None and not (idx > 0 and has_plural_clash):
-                exact = {
-                    "id": art_id,
-                    "name": artist_name,
-                    "genre": genre
-                }
+            score = self.calculate_artist_match_score(q, artist_name)
+            art_words = re.findall(r'\b\w+\b', art_canon)
+            if q_words and all(qw in art_words for qw in q_words) and score < 88.0:
+                score = max(score, round(85.0 + 10.0 * (len(canon_q) / max(1, len(art_canon))), 1))
+
+            # Include any artist with a decent match score (>= 50%)
+            if score < 50.0:
+                continue
+
+            lib_stats = self.get_artist_library_stats(artist_name)
+            in_lib_tracks = lib_stats.get("total_tracks", 0)
+
+            # Ranking calculation:
+            # - Base match score
+            # - Boost for artists already in user's library
+            # - iTunes popularity position weight (iTunes returns top artists first)
+            popularity_bonus = max(0.0, 10.0 - idx * 0.5)
+            library_bonus = 15.0 if in_lib_tracks > 0 else 0.0
+            total_rank = score + popularity_bonus + library_bonus
 
             candidates.append({
                 "id": art_id,
                 "name": artist_name,
-                "genre": genre
+                "genre": genre,
+                "match_percent": score,
+                "in_library_tracks": in_lib_tracks,
+                "library_stats": lib_stats,
+                "rank": total_rank,
+                "is_exact": (art_canon == canon_q),
+                "itunes_index": idx
             })
 
-        if exact:
-            exact["library_stats"] = self.get_artist_library_stats(exact["name"])
-            albums = self.get_artist_albums(exact["id"], exact["name"])
+        if not candidates:
+            return {"match_type": "none", "query": q}
+
+        # Sort candidates primarily by total_rank
+        candidates.sort(key=lambda x: x["rank"], reverse=True)
+
+        top_cand = candidates[0]
+        other_strong_matches = [c for c in candidates[1:] if c["match_percent"] >= 75.0]
+
+        # Exact match bypass should ONLY occur if:
+        # 1. The top candidate is an exact match (is_exact is True and was iTunes #0).
+        # 2. AND either:
+        #    - Query is multi-word (e.g. "Michael Jackson", "Pink Floyd")
+        #    - OR there are no other candidate artists with high match score (>= 75%)
+        is_unambiguous_exact = (
+            top_cand["is_exact"] and
+            top_cand["itunes_index"] == 0 and
+            (len(q_words) >= 2 or len(other_strong_matches) == 0)
+        )
+
+        if is_unambiguous_exact:
+            albums = self.get_artist_albums(top_cand["id"], top_cand["name"])
             return {
                 "match_type": "exact",
-                "artist": exact,
+                "artist": top_cand,
                 "albums": albums
             }
         else:
             return {
                 "match_type": "partial",
                 "query": q,
-                "artists": candidates[:6]
+                "artists": candidates[:10]
             }
 
     async def download_batch_albums(self, artist: str, albums: List[Dict[str, Any]], auto_import: bool = True, auto_complete_album: bool = True) -> Dict[str, Any]:

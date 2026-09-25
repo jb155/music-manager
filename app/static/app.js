@@ -3907,6 +3907,8 @@ function renderArtistChoices(artists, query, autoImport, autoComplete) {
                                 <div class="artist-choice-title-row">
                                     <h4 class="artist-name">${escapeHtml(a.name)}</h4>
                                     <span class="badge" style="font-size: 11px;">${escapeHtml(a.genre || "Music")}</span>
+                                    ${a.match_percent ? `<span class="badge-match"><i class="fa-solid fa-percent" style="font-size: 9px;"></i> ${a.match_percent}% Match</span>` : ''}
+                                    ${a.in_library_tracks > 0 ? `<span class="badge-song-in-library"><i class="fa-solid fa-book-bookmark"></i> In Library (${a.in_library_tracks} tracks)</span>` : ''}
                                 </div>
                             </div>
                         </div>
