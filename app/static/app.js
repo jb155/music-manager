@@ -50,7 +50,7 @@ function initUpdateBadge() {
     }
     const watermark = document.getElementById("app-version-watermark");
     if (watermark) {
-        watermark.addEventListener("click", () => showUpdateModal());
+        watermark.addEventListener("click", () => showUpdateModal(null, true));
     }
 }
 
@@ -86,11 +86,11 @@ async function checkAppVersion() {
     }
 }
 
-async function showUpdateModal(data) {
-    let info = data || _latestVersionInfo;
-    if (!info) {
+async function showUpdateModal(data, forceRefresh = false) {
+    let info = data;
+    if (!info || forceRefresh) {
         try {
-            const resp = await fetch("/api/version");
+            const resp = await fetch("/api/version" + (forceRefresh ? "?refresh=true" : ""));
             if (resp.ok) {
                 info = await resp.json();
                 _latestVersionInfo = info;

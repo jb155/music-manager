@@ -210,7 +210,8 @@ def parse_semver(v: str):
 async def get_version_info(refresh: bool = False):
     """Check for new versions from GitHub repository."""
     now = time.time()
-    if not refresh and _version_cache["data"] and (now - _version_cache["last_check"] < 3600):
+    # Cache version check for 5 minutes (300s) to keep it responsive to new releases
+    if not refresh and _version_cache["data"] and (now - _version_cache["last_check"] < 300):
         return _version_cache["data"]
 
     remote_version = APP_VERSION
