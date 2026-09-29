@@ -23,7 +23,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy version metadata & application code
+COPY version.json .
 COPY app/ ./app/
 
 # Defensively patch spotapi, SpotipyFree, and spotdl against Spotify GraphQL crashes, timeouts, and empty search results

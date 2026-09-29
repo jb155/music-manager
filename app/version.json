@@ -1,0 +1,5 @@
+{
+  "version": "1.7.0",
+  "release_date": "2026-09-29",
+  "notes": "Added multi-provider AI DJ and plain-text vibe playlist creation supporting Google Gemini (Free tier), Groq (Free tier), OpenAI, OpenRouter, Custom endpoints, and local Ollama, with expert DJ liner notes and intelligent library matching."
+}

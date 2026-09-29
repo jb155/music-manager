@@ -37,7 +37,27 @@ except Exception:
     pass
 
 
-APP_VERSION = "1.6.2"
+def _load_app_version() -> str:
+    """Read the canonical application version from version.json."""
+    candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "version.json"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "version.json"),
+        "/app/app/version.json",
+        "/app/version.json",
+        "version.json"
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if data.get("version"):
+                        return str(data["version"]).strip()
+            except Exception:
+                pass
+    return "1.7.0"
+
+APP_VERSION = _load_app_version()
 
 app = FastAPI(title="Music Manager Web", version=APP_VERSION)
 
