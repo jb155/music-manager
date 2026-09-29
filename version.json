@@ -1,5 +1,5 @@
 {
-  "version": "1.6.0",
+  "version": "1.6.1",
   "release_date": "2026-09-29",
-  "notes": "Added Song Seed & BPM Match mode in Smart Playlist Creator: search and select any song from your library to generate running, workout, or vibe playlists matching its tempo (BPM) and style while preventing discordant genres (e.g. no metal during an electro run)."
+  "notes": "Unified resilient search across entire application: normalized punctuation and typographic apostrophes (curly quotes), enabled cross-field multi-token searching, and added track/album match badges and highlights in Music Vault Explorer."
 }

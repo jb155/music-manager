@@ -15,6 +15,7 @@ import urllib.request
 import urllib.error
 import urllib.parse
 import difflib
+import unicodedata
 from collections import defaultdict, Counter
 from typing import AsyncGenerator, List, Dict, Any, Optional, Tuple, Union, Set
 
@@ -102,6 +103,25 @@ def simplify_search_query(query: str, attempt: int = 2) -> str:
     q = re.sub(r'\s+', ' ', q).strip()
     return q
 
+TRANSLATE_TABLE = str.maketrans({
+    '\u2019': '', '\u2018': '', '\u02bc': '', '\u00b4': '', "'": '', '`': '',
+    '"': '', '\u201c': '', '\u201d': '',
+    '-': ' ', '_': ' ', '/': ' ', '.': ' ', ',': ' ', ':': ' ', ';': ' ',
+    '!': ' ', '?': ' ', '(': ' ', ')': ' ', '[': ' ', ']': ' ', '{': ' ', '}': ' '
+})
+
+def normalize_search_text(text: Any) -> str:
+    """Normalize text for bulletproof search matching across Unicode, curly quotes, accents, and punctuation."""
+    if not text:
+        return ""
+    s = str(text)
+    if '&' in s:
+        s = s.replace('&', ' and ')
+    s = s.translate(TRANSLATE_TABLE)
+    if not s.isascii():
+        s = ''.join(c for c in unicodedata.normalize('NFKD', s) if not unicodedata.combining(c))
+    return ' '.join(s.lower().split())
+
 def normalize_music_title(title: str) -> str:
     """Normalize track title for reliable library matching."""
     if not title:
@@ -123,7 +143,15 @@ def normalize_album_name(album: str) -> str:
     return re.sub(r'\s+', ' ', s).strip()
 
 class MusicManagerService:
+    def get_db_connection(self) -> sqlite3.Connection:
+        """Create SQLite connection with custom mm_norm normalization registered."""
+        db_path = os.path.join(self.beets_dir, "library.db")
+        conn = sqlite3.connect(db_path)
+        conn.create_function("mm_norm", 1, normalize_search_text)
+        return conn
+
     def __init__(self):
+
         # Base storage directory support (single declaration point for entire platform)
         self.storage_dir = os.environ.get("STORAGE_DIR")
         if self.storage_dir:
@@ -467,13 +495,15 @@ paths:
             return {"total_tracks": 0, "complete_albums": 0, "albums_map": {}}
 
         try:
-            conn = sqlite3.connect(db_path)
+            conn = self.get_db_connection()
             c = conn.cursor()
+            norm_art = normalize_search_text(artist_name.strip())
             c.execute("""
                 SELECT items.album, items.title, items.track, items.tracktotal
                 FROM items
                 WHERE LOWER(items.artist) = LOWER(?) OR LOWER(items.albumartist) = LOWER(?)
-            """, (artist_name.strip(), artist_name.strip()))
+                   OR mm_norm(items.artist) = ? OR mm_norm(items.albumartist) = ?
+            """, (artist_name.strip(), artist_name.strip(), norm_art, norm_art))
             rows = c.fetchall()
             conn.close()
 
@@ -521,16 +551,18 @@ paths:
             return False
 
         norm_album = normalize_album_name(album) if album else None
+        norm_art = normalize_search_text(artist.strip())
 
         try:
-            conn = sqlite3.connect(db_path)
+            conn = self.get_db_connection()
             c = conn.cursor()
             if norm_album:
                 c.execute("""
                     SELECT items.title, items.album
                     FROM items
                     WHERE LOWER(items.artist) = LOWER(?) OR LOWER(items.albumartist) = LOWER(?)
-                """, (artist.strip(), artist.strip()))
+                       OR mm_norm(items.artist) = ? OR mm_norm(items.albumartist) = ?
+                """, (artist.strip(), artist.strip(), norm_art, norm_art))
                 rows = c.fetchall()
                 conn.close()
 
@@ -543,13 +575,15 @@ paths:
                     SELECT items.title
                     FROM items
                     WHERE LOWER(items.artist) = LOWER(?) OR LOWER(items.albumartist) = LOWER(?)
-                """, (artist.strip(), artist.strip()))
+                       OR mm_norm(items.artist) = ? OR mm_norm(items.albumartist) = ?
+                """, (artist.strip(), artist.strip(), norm_art, norm_art))
                 rows = c.fetchall()
                 conn.close()
 
                 for (t,) in rows:
                     if normalize_music_title(t) == norm_title:
                         return True
+
         except Exception as e:
             logger.error(f"Error checking if song is in library '{artist} - {title}': {e}")
         return False
@@ -3112,18 +3146,18 @@ paths:
 
     def find_track_by_query(self, artist: str, title: str) -> Optional[Dict[str, Any]]:
         """Find track in local Beets library matching artist and title."""
-        db_path = os.path.join(self.beets_dir, "library.db")
         try:
-            conn = sqlite3.connect(db_path)
+            conn = self.get_db_connection()
             c = conn.cursor()
-            clean_art = re.split(r'[\s(]+(?:feat\.?|ft\.?|featuring)\s+', artist, flags=re.I)[0].split('&')[0].strip()
-            clean_title = re.split(r'[\s(]+(?:feat\.?|ft\.?|featuring)\s+', title, flags=re.I)[0].split('(')[0].strip()
+            clean_art = normalize_search_text(re.split(r'[\s(]+(?:feat\.?|ft\.?|featuring)\s+', artist, flags=re.I)[0].split('&')[0])
+            clean_title = normalize_search_text(re.split(r'[\s(]+(?:feat\.?|ft\.?|featuring)\s+', title, flags=re.I)[0].split('(')[0])
             c.execute(
-                "SELECT id, title, artist, album, genre, length, path, year FROM items WHERE artist LIKE ? AND title LIKE ? LIMIT 1",
-                (f"%{clean_art}%", f"%{clean_title}%")
+                "SELECT id, title, artist, album, genre, length, path, year FROM items WHERE (mm_norm(artist) LIKE ? OR mm_norm(albumartist) LIKE ?) AND mm_norm(title) LIKE ? LIMIT 1",
+                (f"%{clean_art}%", f"%{clean_art}%", f"%{clean_title}%")
             )
             row = c.fetchone()
             conn.close()
+
             if row:
                 path_str = self.resolve_audio_path(row[6])
                 length_sec = max(1, round(float(row[5] or 0)))
@@ -3574,17 +3608,16 @@ paths:
             return 0.0
 
         def canon(s: str) -> str:
-            s = s.lower().strip()
+            s = normalize_search_text(s)
             if s.startswith("the "):
                 s = s[4:].strip()
-            s = s.replace("&", "and")
-            s = re.sub(r'[^\w\s]', '', s)
-            return re.sub(r'\s+', ' ', s).strip()
+            return s
 
         clean_q = canon(query)
         clean_a = canon(artist_name)
         if not clean_q or not clean_a:
             return 0.0
+
 
         # Exact match
         if clean_a == clean_q:
@@ -3645,24 +3678,21 @@ paths:
         limit: int = 25
     ) -> Dict[str, Any]:
         """Fetch paginated library artists with album and track counts, ranked by % match when searching."""
-        db_path = os.path.join(self.beets_dir, "library.db")
         page = max(1, page)
         limit = max(1, min(100, limit))
         offset = (page - 1) * limit
 
-        where_clauses = ["items.length > 10", "COALESCE(NULLIF(items.albumartist, ''), items.artist) != ''"]
-        sql_params = []
-
         clean_q = query.strip() if query else ""
-        if clean_q:
-            q_like = f"%{clean_q}%"
-            where_clauses.append("(items.artist LIKE ? OR items.albumartist LIKE ?)")
-            sql_params.extend([q_like, q_like])
+        norm_q = normalize_search_text(clean_q)
+
+        # Base filter clauses
+        base_where = ["items.length > 10", "COALESCE(NULLIF(items.albumartist, ''), items.artist) != ''"]
+        base_params = []
 
         # Ignore empty or "all" genres
         if genre and genre.strip() and genre.strip().lower() not in ("", "all", "all genres", "all genre"):
-            where_clauses.append("items.genre LIKE ?")
-            sql_params.append(f"%{genre.strip()}%")
+            base_where.append("items.genre LIKE ?")
+            base_params.append(f"%{genre.strip()}%")
 
         # Parse decade safely
         if decade:
@@ -3670,55 +3700,82 @@ paths:
                 dec_match = re.search(r'\d{4}', str(decade))
                 if dec_match:
                     dec = int(dec_match.group(0))
-                    where_clauses.append("items.year >= ? AND items.year < ?")
-                    sql_params.extend([dec, dec + 10])
+                    base_where.append("items.year >= ? AND items.year < ?")
+                    base_params.extend([dec, dec + 10])
             except (ValueError, TypeError):
                 pass
 
-        where_sql = " AND ".join(where_clauses)
-
-        # Determine sorting column and direction
         order_dir = "DESC" if str(sort_order).lower() == "desc" else "ASC"
         s_by = str(sort_by).lower().strip()
 
         try:
-            conn = sqlite3.connect(db_path)
+            conn = self.get_db_connection()
             c = conn.cursor()
 
-            # When a search query is active, fetch matching artists, calculate match percentage and rank
-            if clean_q:
-                query_sql = f"""
-                    SELECT 
-                        COALESCE(NULLIF(items.albumartist, ''), items.artist) as artist_name,
-                        COUNT(DISTINCT items.id) as track_count,
-                        COUNT(DISTINCT NULLIF(lower(items.album), '')) as album_count,
-                        MAX(items.genre) as top_genre,
-                        MIN(NULLIF(items.year, 0)) as min_year,
-                        MAX(items.year) as max_year,
-                        MAX(items.added) as max_added
-                    FROM items
-                    WHERE {where_sql}
-                    GROUP BY lower(artist_name)
-                """
-                c.execute(query_sql, sql_params)
+            # When a search query is active, fetch matching artists across artist, album, and track titles
+            if norm_q:
+                words = norm_q.split()
+                q_like = f"%{norm_q}%"
+                word_clause = " AND ".join(["mm_norm(artist || ' ' || album || ' ' || title) LIKE ?"] * len(words)) if words else "1=1"
+                word_params = [f"%{w}%" for w in words]
+
+                sub_where = list(base_where)
+                sub_params = list(base_params)
+
+                sub_where.append(f"(mm_norm(artist) LIKE ? OR mm_norm(albumartist) LIKE ? OR mm_norm(album) LIKE ? OR mm_norm(title) LIKE ? OR ({word_clause}))")
+                sub_params.extend([q_like, q_like, q_like, q_like] + word_params)
+                sub_where_sql = " AND ".join(sub_where)
+
+                sql = (
+                    "WITH matched_arts AS ("
+                    " SELECT "
+                    "     COALESCE(NULLIF(albumartist, ''), artist) as art_name,"
+                    "     MAX(CASE WHEN mm_norm(COALESCE(NULLIF(albumartist, ''), artist)) LIKE ? THEN 1 ELSE 0 END) as matched_artist_name,"
+                    "     GROUP_CONCAT(DISTINCT CASE WHEN mm_norm(title) LIKE ? THEN title ELSE NULL END) as matched_titles,"
+                    "     GROUP_CONCAT(DISTINCT CASE WHEN mm_norm(album) LIKE ? THEN album ELSE NULL END) as matched_albums"
+                    " FROM items"
+                    f" WHERE {sub_where_sql}"
+                    " GROUP BY lower(art_name)"
+                    ")"
+                    " SELECT "
+                    "     COALESCE(NULLIF(i.albumartist, ''), i.artist) as artist_name,"
+                    "     COUNT(DISTINCT i.id) as track_count,"
+                    "     COUNT(DISTINCT NULLIF(lower(i.album), '')) as album_count,"
+                    "     MAX(i.genre) as top_genre,"
+                    "     MIN(NULLIF(i.year, 0)) as min_year,"
+                    "     MAX(i.year) as max_year,"
+                    "     MAX(i.added) as max_added,"
+                    "     m.matched_artist_name,"
+                    "     m.matched_titles,"
+                    "     m.matched_albums"
+                    " FROM items i"
+                    " JOIN matched_arts m ON lower(COALESCE(NULLIF(i.albumartist, ''), i.artist)) = lower(m.art_name)"
+                    " WHERE i.length > 10"
+                    " GROUP BY lower(artist_name)"
+                )
+                query_params = [q_like, q_like, q_like] + sub_params
+                c.execute(sql, query_params)
                 all_rows = c.fetchall()
 
-                # Fallback: if LIKE query returned 0 rows, check distinct artists with fuzzy sequence matcher for typos (e.g. 'micheal jackson')
+                # Fallback: if query returned 0 rows, check distinct artists with fuzzy sequence matcher for typos
                 if not all_rows:
-                    fallback_sql = """
-                        SELECT 
-                            COALESCE(NULLIF(items.albumartist, ''), items.artist) as artist_name,
-                            COUNT(DISTINCT items.id) as track_count,
-                            COUNT(DISTINCT NULLIF(lower(items.album), '')) as album_count,
-                            MAX(items.genre) as top_genre,
-                            MIN(NULLIF(items.year, 0)) as min_year,
-                            MAX(items.year) as max_year,
-                            MAX(items.added) as max_added
-                        FROM items
-                        WHERE items.length > 10 AND COALESCE(NULLIF(items.albumartist, ''), items.artist) != ''
-                        GROUP BY lower(artist_name)
-                    """
-                    c.execute(fallback_sql)
+                    fallback_sql = (
+                        "SELECT "
+                        " COALESCE(NULLIF(items.albumartist, ''), items.artist) as artist_name,"
+                        " COUNT(DISTINCT items.id) as track_count,"
+                        " COUNT(DISTINCT NULLIF(lower(items.album), '')) as album_count,"
+                        " MAX(items.genre) as top_genre,"
+                        " MIN(NULLIF(items.year, 0)) as min_year,"
+                        " MAX(items.year) as max_year,"
+                        " MAX(items.added) as max_added,"
+                        " 0 as matched_artist_name,"
+                        " NULL as matched_titles,"
+                        " NULL as matched_albums"
+                        " FROM items"
+                        f" WHERE {' AND '.join(base_where)}"
+                        " GROUP BY lower(artist_name)"
+                    )
+                    c.execute(fallback_sql, base_params)
                     for r in c.fetchall():
                         s = self.calculate_artist_match_score(clean_q, r[0])
                         if s >= 60.0:
@@ -3729,28 +3786,53 @@ paths:
                 scored_rows = []
                 for r in all_rows:
                     name = r[0]
+                    is_art_match = bool(r[7])
+                    matched_titles = r[8] or ""
+                    matched_albums = r[9] or ""
+
                     score = self.calculate_artist_match_score(clean_q, name)
-                    if score > 0:
-                        scored_rows.append((score, r))
+                    matched_item = None
+
+                    if score >= 60.0:
+                        pass # direct artist match
+                    elif is_art_match:
+                        score = 90.0
+                    elif matched_titles:
+                        titles = [t.strip() for t in matched_titles.split(",") if t.strip()]
+                        # Prioritize exact match or shortest matching title
+                        titles.sort(key=lambda t: (0 if norm_q == normalize_search_text(t) else (1 if norm_q in normalize_search_text(t) else 2), len(t)))
+                        first_title = titles[0]
+                        matched_item = f"Track: {first_title}"
+                        score = 95.0 if norm_q in normalize_search_text(first_title) else 85.0
+                    elif matched_albums:
+                        albums = [a.strip() for a in matched_albums.split(",") if a.strip()]
+                        albums.sort(key=lambda a: (0 if norm_q == normalize_search_text(a) else (1 if norm_q in normalize_search_text(a) else 2), len(a)))
+                        first_album = albums[0]
+                        matched_item = f"Album: {first_album}"
+                        score = 95.0 if norm_q in normalize_search_text(first_album) else 85.0
+                    else:
+                        score = 80.0
+
+                    scored_rows.append((score, matched_item, r))
 
                 # If sorting by artist or relevance (default search behavior), sort primarily by % match!
                 if s_by in ("artist", "relevance", "match") or not s_by:
-                    scored_rows.sort(key=lambda x: (x[0], x[1][1]), reverse=True)
+                    scored_rows.sort(key=lambda x: (x[0], x[2][1]), reverse=True)
                 elif s_by in ("album", "albums"):
-                    scored_rows.sort(key=lambda x: x[1][2], reverse=(order_dir == "DESC"))
+                    scored_rows.sort(key=lambda x: x[2][2], reverse=(order_dir == "DESC"))
                 elif s_by in ("title", "track", "tracks"):
-                    scored_rows.sort(key=lambda x: x[1][1], reverse=(order_dir == "DESC"))
+                    scored_rows.sort(key=lambda x: x[2][1], reverse=(order_dir == "DESC"))
                 elif s_by in ("year", "era"):
-                    scored_rows.sort(key=lambda x: x[1][5] or 0, reverse=(order_dir == "DESC"))
+                    scored_rows.sort(key=lambda x: x[2][5] or 0, reverse=(order_dir == "DESC"))
                 elif s_by in ("added", "recent"):
-                    scored_rows.sort(key=lambda x: x[1][6] or 0, reverse=(order_dir == "DESC"))
+                    scored_rows.sort(key=lambda x: x[2][6] or 0, reverse=(order_dir == "DESC"))
 
                 total_artists = len(scored_rows)
                 page_rows = scored_rows[offset:offset + limit]
 
                 artists = []
-                for score, r in page_rows:
-                    name, t_count, a_count, g, min_y, max_y, _ = r
+                for score, matched_item, r in page_rows:
+                    name, t_count, a_count, g, min_y, max_y, _, _, _, _ = r
                     year_str = ""
                     if min_y and max_y:
                         year_str = f"{min_y} - {max_y}" if min_y != max_y else str(min_y)
@@ -3764,7 +3846,8 @@ paths:
                         "album_count": max(1, a_count),
                         "genre": g or "Music",
                         "year_range": year_str,
-                        "match_percent": score,
+                        "match_percent": round(score),
+                        "matched_item": matched_item,
                         "image_url": f"/api/library/artist-art?artist={urllib.parse.quote(name)}"
                     })
 
@@ -3776,6 +3859,7 @@ paths:
                     "limit": limit,
                     "total_pages": total_pages
                 }
+
 
             # Standard browsing (no query): fast SQL paginated path
             if s_by in ("album", "albums"):
@@ -3854,10 +3938,10 @@ paths:
 
     def get_library_artist_albums(self, artist_name: str) -> Dict[str, Any]:
         """Fetch all albums by an artist from Beets library with artwork, years, and track counts."""
-        db_path = os.path.join(self.beets_dir, "library.db")
         try:
-            conn = sqlite3.connect(db_path)
+            conn = self.get_db_connection()
             c = conn.cursor()
+            norm_art = normalize_search_text(artist_name)
 
             c.execute("""
                 SELECT 
@@ -3871,11 +3955,13 @@ paths:
                 FROM albums a
                 JOIN items i ON i.album_id = a.id
                 WHERE lower(a.albumartist) = lower(?) OR lower(i.artist) = lower(?) OR lower(i.albumartist) = lower(?)
+                   OR mm_norm(a.albumartist) = ? OR mm_norm(i.artist) = ? OR mm_norm(i.albumartist) = ?
                 GROUP BY a.id
                 ORDER BY a.year DESC, a.album ASC
-            """, (artist_name, artist_name, artist_name))
+            """, (artist_name, artist_name, artist_name, norm_art, norm_art, norm_art))
             rows = c.fetchall()
             conn.close()
+
 
             albums = []
             for r in rows:
@@ -4382,17 +4468,18 @@ paths:
 
         # 4. Fallback: check local library for an album with cover art
         try:
-            db_path = os.path.join(self.beets_dir, "library.db")
-            conn = sqlite3.connect(db_path)
+            conn = self.get_db_connection()
             c = conn.cursor()
+            norm_clean = normalize_search_text(clean_name)
             c.execute("""
                 SELECT artpath FROM albums 
-                WHERE (albumartist = ? OR id IN (SELECT album_id FROM items WHERE artist = ?))
+                WHERE (lower(albumartist) = lower(?) OR mm_norm(albumartist) = ? OR id IN (SELECT album_id FROM items WHERE lower(artist) = lower(?) OR mm_norm(artist) = ?))
                   AND artpath IS NOT NULL AND artpath != ''
                 LIMIT 1;
-            """, (clean_name, clean_name))
+            """, (clean_name, norm_clean, clean_name, norm_clean))
             row = c.fetchone()
             conn.close()
+
             if row and row[0]:
                 art_str = row[0].decode("utf-8", errors="replace") if isinstance(row[0], bytes) else str(row[0])
                 art_str = art_str.replace("\\", "/")
@@ -4435,11 +4522,14 @@ paths:
         sql_params = []
 
         if query and query.strip():
-            q = f"%{query.strip()}%"
-            where_clauses.append("(items.title LIKE ? OR items.artist LIKE ? OR items.album LIKE ?)")
-            sql_params.extend([q, q, q])
+            norm_q = normalize_search_text(query.strip())
+            words = norm_q.split()
+            word_clauses = " AND ".join(["mm_norm(items.artist || ' ' || items.album || ' ' || items.title) LIKE ?"] * len(words)) if words else "1=1"
+            where_clauses.append(f"(mm_norm(items.title) LIKE ? OR mm_norm(items.artist) LIKE ? OR mm_norm(items.album) LIKE ? OR ({word_clauses}))")
+            q_like = f"%{norm_q}%"
+            sql_params.extend([q_like, q_like, q_like] + [f"%{w}%" for w in words])
 
-        if genre and genre.strip():
+        if genre and genre.strip() and genre.strip().lower() not in ("", "all", "all genres", "all genre"):
             g = f"%{genre.strip()}%"
             where_clauses.append("items.genre LIKE ?")
             sql_params.append(g)
@@ -4454,8 +4544,9 @@ paths:
         tracks = []
 
         try:
-            conn = sqlite3.connect(db_path)
+            conn = self.get_db_connection()
             c = conn.cursor()
+
 
             # Count total matches
             count_sql = f"SELECT count(*) FROM items WHERE {where_str}"
@@ -4990,36 +5081,48 @@ paths:
 
     def search_library_songs(self, query: str, limit: int = 15) -> List[Dict[str, Any]]:
         """Search library songs for playlist seed selection, returning tracks with cached or detected BPM."""
-        db_path = os.path.join(self.beets_dir, "library.db")
-        clean_q = query.strip()
+        clean_q = query.strip() if query else ""
         if not clean_q:
             return []
 
         try:
-            conn = sqlite3.connect(db_path)
+            conn = self.get_db_connection()
             c = conn.cursor()
-            q_like = f"%{clean_q}%"
-            q_starts = f"{clean_q}%"
+            norm_q = normalize_search_text(clean_q)
+            q_like = f"%{norm_q}%"
+            q_starts = f"{norm_q}%"
+            words = norm_q.split()
 
-            sql = """
+            word_clauses = " AND ".join(["mm_norm(items.artist || ' ' || items.album || ' ' || items.title) LIKE ?"] * len(words)) if words else "1=1"
+            word_params = [f"%{w}%" for w in words]
+
+            sql = f"""
                 SELECT id, title, artist, album, genre, length, path, year, bpm
                 FROM items
                 WHERE length > 20
-                  AND (title LIKE ? OR artist LIKE ? OR album LIKE ?)
+                  AND (
+                    mm_norm(title) LIKE ? 
+                    OR mm_norm(artist) LIKE ? 
+                    OR mm_norm(album) LIKE ? 
+                    OR ({word_clauses})
+                  )
                 ORDER BY
                   CASE
-                    WHEN lower(title) = lower(?) THEN 1
-                    WHEN lower(title) LIKE lower(?) THEN 2
-                    WHEN lower(artist) = lower(?) THEN 3
-                    WHEN lower(artist) LIKE lower(?) THEN 4
-                    ELSE 5
+                    WHEN mm_norm(title) = ? THEN 1
+                    WHEN mm_norm(title) LIKE ? THEN 2
+                    WHEN mm_norm(artist) = ? THEN 3
+                    WHEN mm_norm(artist) LIKE ? THEN 4
+                    WHEN mm_norm(title) LIKE ? THEN 5
+                    ELSE 6
                   END,
                   length DESC
                 LIMIT ?
             """
-            c.execute(sql, (q_like, q_like, q_like, clean_q, q_starts, clean_q, q_starts, max(1, min(50, limit))))
+            params = [q_like, q_like, q_like] + word_params + [norm_q, q_starts, norm_q, q_starts, q_like, max(1, min(50, limit))]
+            c.execute(sql, params)
             rows = c.fetchall()
             conn.close()
+
 
             songs = []
             for r in rows:
@@ -5327,8 +5430,9 @@ paths:
 
         conn = None
         try:
-            conn = sqlite3.connect(db_path)
+            conn = self.get_db_connection()
             c = conn.cursor()
+
             # -------------------------------------------------------------
             # MODE 1: GENRE COMBO
             # -------------------------------------------------------------
@@ -5808,12 +5912,15 @@ paths:
                             continue
 
                         # Exact or close title match
-                        c.execute("SELECT id, title, artist, album, genre, length, path, year FROM items WHERE artist LIKE ? AND title LIKE ? LIMIT 1", (f"%{art}%", f"%{tit}%"))
+                        norm_art = normalize_search_text(art)
+                        norm_tit = normalize_search_text(tit)
+                        c.execute("SELECT id, title, artist, album, genre, length, path, year FROM items WHERE (mm_norm(artist) LIKE ? OR mm_norm(albumartist) LIKE ?) AND mm_norm(title) LIKE ? LIMIT 1", (f"%{norm_art}%", f"%{norm_art}%", f"%{norm_tit}%"))
                         row = c.fetchone()
                         if not row:
                             # Fallback to any song by this artist in library
-                            c.execute("SELECT id, title, artist, album, genre, length, path, year FROM items WHERE artist LIKE ? ORDER BY RANDOM() LIMIT 1", (f"%{art}%",))
+                            c.execute("SELECT id, title, artist, album, genre, length, path, year FROM items WHERE (mm_norm(artist) LIKE ? OR mm_norm(albumartist) LIKE ?) ORDER BY RANDOM() LIMIT 1", (f"%{norm_art}%", f"%{norm_art}%"))
                             row = c.fetchone()
+
 
                         if row and row[0] not in seen_ids:
                             item = _format_track_row(row)

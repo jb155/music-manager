@@ -509,12 +509,13 @@ document.getElementById("btn-scan-missing").addEventListener("click", async () =
 });
 
 document.getElementById("missing-search").addEventListener("input", (e) => {
-    const term = e.target.value.toLowerCase();
+    const term = normalizeSearchText(e.target.value);
     const filtered = missingTracksData.filter(t =>
-        `${t.artist} ${t.album || ""} ${t.title}`.toLowerCase().includes(term)
+        normalizeSearchText(`${t.artist} ${t.album || ""} ${t.title}`).includes(term)
     );
     renderMissingTable(filtered);
 });
+
 
 document.getElementById("btn-download-all-missing").addEventListener("click", async () => {
     if (missingTracksData.length === 0) {
@@ -1246,8 +1247,10 @@ function renderAnchorChips() {
 
     if (query) {
         isFiltered = true;
-        displayed = allAnchorArtists.filter(a => (a.artist || "").toLowerCase().includes(query));
+        const normQ = normalizeSearchText(query);
+        displayed = allAnchorArtists.filter(a => normalizeSearchText(a.artist || "").includes(normQ));
     } else if (!showAllAnchors) {
+
         displayed = allAnchorArtists.slice(0, 36);
     }
 
@@ -1552,6 +1555,18 @@ async function downloadArtistTopTracks(artistName) {
 }
 
 // Helpers
+function normalizeSearchText(str) {
+    if (!str) return "";
+    return String(str)
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[\u2019\u2018\u02bc\u00b4'`"]/g, "")
+        .replace(/[-_/.,:;!?(){}\[\]]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+}
+
 function escapeHtml(str) {
     if (!str) return "";
     return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -1561,6 +1576,7 @@ function escapeAttr(str) {
     if (!str) return "";
     return String(str).replace(/&/g, "&amp;").replace(/'/g, "&#39;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
+
 
 async function downloadAllRecommendations() {
     if (!currentRecommendations || currentRecommendations.length === 0) {
@@ -3430,8 +3446,10 @@ async function loadLibraryHierarchy() {
                             <div class="lib-artist-title-row">
                                 <h3>${escapeHtml(art.name)}</h3>
                                 ${art.match_percent != null ? `<span class="badge badge-match">${art.match_percent}% match</span>` : ''}
+                                ${art.matched_item ? `<span class="badge badge-matched-item" style="background: rgba(245, 158, 11, 0.18); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); font-size: 11px;"><i class="fa-solid fa-music"></i> ${escapeHtml(art.matched_item)}</span>` : ''}
                                 <span class="badge" style="font-size: 11px;">${escapeHtml(art.genre || "Music")}</span>
                             </div>
+
                             <div class="lib-artist-meta">
                                 <span><i class="fa-solid fa-compact-disc"></i> ${art.album_count} ${art.album_count === 1 ? 'album' : 'albums'}</span>
                                 &bull;
@@ -3499,14 +3517,17 @@ async function loadLibraryHierarchy() {
             });
         });
 
-        // Restore expanded state for artists that were previously open
+        // Restore expanded state for artists that were previously open, or auto-expand if single search result with matched_item
         if (previouslyExpandedArtists && previouslyExpandedArtists.size > 0) {
             currentLibraryArtists.forEach((art, idx) => {
                 if (previouslyExpandedArtists.has(art.name)) {
                     toggleArtistAlbums(idx);
                 }
             });
+        } else if (search && currentLibraryArtists.length === 1 && currentLibraryArtists[0].matched_item) {
+            toggleArtistAlbums(0);
         }
+
 
     } catch (err) {
         listEl.innerHTML = `<div class="p-4 text-center text-danger">Error loading artists: ${escapeHtml(err.message)}</div>`;
@@ -3717,10 +3738,14 @@ function renderAlbumSongs(artIdx, albIdx) {
         return;
     }
 
+    const activeSearch = normalizeSearchText(document.getElementById("library-search")?.value || "");
+
     content.innerHTML = `
         <div class="lib-songs-list">
-            ${alb.tracks.map((song, sIdx) => `
-                <div class="lib-song-row" data-song-id="${song.id}">
+            ${alb.tracks.map((song, sIdx) => {
+                const isTrackMatch = activeSearch && normalizeSearchText(song.title).includes(activeSearch);
+                return `
+                <div class="lib-song-row ${isTrackMatch ? 'matched-track-highlight' : ''}" data-song-id="${song.id}" ${isTrackMatch ? 'style="background: rgba(245, 158, 11, 0.15); border-left: 3px solid #f59e0b;"' : ''}>
                     <div class="lib-song-left">
                         <button type="button" class="btn-track-play btn-lib-song-play"
                             data-art-idx="${artIdx}"
@@ -3732,6 +3757,7 @@ function renderAlbumSongs(artIdx, albIdx) {
                         </button>
                         <span class="lib-song-number">${song.number || (sIdx + 1)}</span>
                         <span class="lib-song-title" title="${escapeAttr(song.title)}">${escapeHtml(song.title)}</span>
+                        ${isTrackMatch ? `<span class="badge" style="background: #f59e0b; color: #000; font-size: 10px; font-weight: 700; margin-left: 8px;">MATCH</span>` : ''}
                     </div>
                     <div class="lib-song-right">
                         <span class="lib-song-duration">${escapeHtml(song.duration || '')}</span>
@@ -3754,9 +3780,11 @@ function renderAlbumSongs(artIdx, albIdx) {
                         </button>
                     </div>
                 </div>
-            `).join("")}
+            `;
+            }).join("")}
         </div>
     `;
+
 
     // Bind Song Audio Preview buttons
     content.querySelectorAll(".btn-lib-song-play").forEach(btn => {
