@@ -175,6 +175,14 @@ function initTabs() {
             const targetPane = document.getElementById(`pane-${tabName}`);
             if (targetPane) targetPane.classList.add("active");
 
+            // Ensure active tab is visible in horizontal carousel and scroll to top on mobile
+            try {
+                btn.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+                if (window.innerWidth <= 768) {
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                }
+            } catch (_) {}
+
             // Refresh tab-specific data
             if (tabName === "playlist") {
                 loadPlaylistMetadata();
@@ -2945,6 +2953,7 @@ class AudioManager {
             if (!this.audio.duration || isNaN(this.audio.duration)) return;
             const pct = (this.audio.currentTime / this.audio.duration) * 100;
             if (this.scrubber) this.scrubber.value = pct;
+            if (this.barEl) this.barEl.style.setProperty("--mobile-progress", `${pct}%`);
             if (this.currentTimeEl) this.currentTimeEl.textContent = this.formatTime(this.audio.currentTime);
             if (this.durationEl) this.durationEl.textContent = this.formatTime(this.audio.duration);
         });

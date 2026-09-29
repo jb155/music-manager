@@ -6021,3 +6021,827 @@ select option:checked,
     margin-bottom: 14px;
 }
 
+/* ==========================================================================
+   MOBILE & SMALL SCREEN RESPONSIVE SYSTEM (v1.6.2)
+   Provides native app-quality experience on phones & mobile viewports
+   ========================================================================== */
+
+/* Prevent horizontal page drift & support safe areas */
+html, body {
+    max-width: 100vw;
+    overflow-x: hidden;
+}
+
+@media (max-width: 768px) {
+    /* 1. Global Container & Safe Areas */
+    .app-container {
+        padding: 10px 10px calc(88px + env(safe-area-inset-bottom, 0px)) 10px;
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+
+    /* Prevent iOS auto-zoom on input focus */
+    input, select, textarea {
+        font-size: 16px !important;
+    }
+
+    /* 2. Top Navigation Bar */
+    .navbar {
+        padding: 10px 12px;
+        margin-bottom: 12px;
+        border-radius: 14px;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .brand {
+        gap: 10px;
+    }
+
+    .logo-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 16px;
+        border-radius: 10px;
+    }
+
+    .brand h1 {
+        font-size: 16px;
+    }
+
+    .version-tag {
+        font-size: 10px;
+    }
+
+    .header-stats {
+        gap: 6px;
+        margin-left: auto;
+    }
+
+    /* Hide bulky desktop stats on mobile to prevent navbar explosion */
+    #stat-tracks,
+    #stat-albums,
+    #stat-size {
+        display: none !important;
+    }
+
+    .theme-selector-wrap {
+        height: 28px;
+        padding: 3px 8px;
+        gap: 6px;
+    }
+
+    .theme-select-dropdown {
+        font-size: 11.5px !important;
+        max-width: 125px;
+    }
+
+    .status-badge {
+        padding: 4px 10px;
+        font-size: 11.5px;
+        gap: 6px;
+    }
+
+    .stat-pill.update-pill {
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+
+    /* 3. Horizontal Smooth-Scroll Tabs Carousel */
+    .tabs {
+        display: flex;
+        overflow-x: auto;
+        overflow-y: hidden;
+        flex-wrap: nowrap;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        gap: 6px;
+        margin-bottom: 12px;
+        padding: 2px 2px 6px 2px;
+        border-radius: 12px;
+    }
+
+    .tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    .tab-btn {
+        flex: 0 0 auto;
+        padding: 8px 13px;
+        font-size: 12.5px;
+        border-radius: 10px;
+        white-space: nowrap;
+        gap: 6px;
+    }
+
+    .tab-btn .badge {
+        font-size: 10px;
+        padding: 1px 5px;
+    }
+
+    /* 4. Cards & Card Headers */
+    .card {
+        padding: 14px 12px;
+        border-radius: 14px;
+    }
+
+    .card-header h2 {
+        font-size: 16px;
+        gap: 8px;
+    }
+
+    .card-header .subtitle {
+        font-size: 12px;
+        line-height: 1.4;
+        margin-top: 2px;
+    }
+
+    .card-header.flex-between {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .card-header .action-buttons {
+        width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .card-header .action-buttons .btn,
+    .card-header .action-buttons select {
+        flex: 1 1 auto;
+        font-size: 12px;
+        padding: 7px 10px;
+        justify-content: center;
+        text-align: center;
+    }
+
+    /* 5. Download Tab */
+    .input-group {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: stretch;
+        position: relative;
+    }
+
+    .input-group input {
+        padding: 12px 14px 12px 42px !important;
+        font-size: 16px !important;
+        width: 100%;
+        border-radius: 10px;
+    }
+
+    .input-icon {
+        position: absolute;
+        left: 14px;
+        top: 14px;
+        transform: none;
+        font-size: 18px;
+    }
+
+    .input-group button {
+        position: static !important;
+        width: 100%;
+        padding: 12px 16px;
+        font-size: 14px;
+        justify-content: center;
+        border-radius: 10px;
+    }
+
+    .options-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        margin-top: 12px;
+        padding-top: 10px;
+    }
+
+    .toggle-control {
+        font-size: 12px;
+    }
+
+    .retries-picker {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        width: 100%;
+    }
+
+    /* 6. Music Vault Explorer (Library Tab) */
+    .view-mode-toggle {
+        width: 100%;
+        display: flex;
+    }
+
+    .view-mode-toggle .btn {
+        flex: 1;
+        justify-content: center;
+        font-size: 12px;
+        padding: 6px 8px;
+    }
+
+    .library-filter-bar {
+        padding: 10px;
+        gap: 8px;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .library-filter-bar .search-input-wrap {
+        width: 100%;
+        min-width: 0;
+        flex: 1 1 100%;
+    }
+
+    .library-filter-bar .search-input {
+        font-size: 16px !important;
+        padding: 10px 12px 10px 34px;
+    }
+
+    .filter-group {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .filter-group label {
+        font-size: 11.5px;
+        min-width: 48px;
+        flex-shrink: 0;
+    }
+
+    .filter-group select {
+        flex: 1;
+        min-width: 0;
+        font-size: 13px !important;
+        padding: 7px 28px 7px 10px;
+    }
+
+    /* Artist Hierarchy Mobile View */
+    .lib-artist-row {
+        padding: 8px 10px;
+        min-height: 52px;
+        gap: 8px;
+    }
+
+    .lib-artist-left {
+        gap: 10px;
+        min-width: 0;
+    }
+
+    .lib-artist-avatar {
+        width: 38px;
+        height: 38px;
+        font-size: 15px;
+        flex-shrink: 0;
+    }
+
+    .lib-artist-title-row {
+        gap: 5px;
+        margin-bottom: 2px;
+    }
+
+    .lib-artist-title-row h3 {
+        font-size: 14px;
+    }
+
+    .badge-matched-item {
+        font-size: 10px !important;
+        padding: 1px 6px !important;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .badge-match {
+        font-size: 10px !important;
+        padding: 1px 5px !important;
+    }
+
+    .lib-artist-meta {
+        font-size: 11px;
+        gap: 4px;
+    }
+
+    .lib-artist-right {
+        gap: 6px;
+    }
+
+    .lib-albums-drawer {
+        padding: 8px 6px;
+    }
+
+    .lib-albums-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        font-size: 12px;
+        padding-bottom: 6px;
+    }
+
+    .artist-albums-toolbar {
+        width: 100%;
+        margin-bottom: 6px;
+        padding: 6px 10px;
+    }
+
+    .artist-albums-toolbar .btn {
+        width: 100%;
+        justify-content: center;
+        font-size: 11.5px;
+    }
+
+    .lib-album-row {
+        padding: 8px 8px;
+        gap: 8px;
+    }
+
+    .lib-album-art {
+        width: 36px;
+        height: 36px;
+        font-size: 14px;
+        flex-shrink: 0;
+    }
+
+    .lib-album-title {
+        font-size: 13px;
+    }
+
+    .lib-album-meta {
+        font-size: 11px;
+        gap: 4px;
+        flex-wrap: wrap;
+    }
+
+    .lib-songs-drawer {
+        padding: 6px 4px;
+    }
+
+    .lib-song-row {
+        padding: 6px 6px;
+        font-size: 12.5px;
+        gap: 6px;
+    }
+
+    .lib-song-left {
+        gap: 8px;
+    }
+
+    .lib-song-number {
+        min-width: 18px;
+        font-size: 10px;
+    }
+
+    .lib-song-title {
+        font-size: 12.5px;
+    }
+
+    .lib-song-right {
+        gap: 6px;
+    }
+
+    /* Flat Track Data Table Mobile */
+    .table-container {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+        width: 100%;
+        border-radius: 8px;
+    }
+
+    .data-table {
+        min-width: 600px;
+        font-size: 12px;
+    }
+
+    .data-table th, .data-table td {
+        padding: 8px 10px;
+    }
+
+    .pagination-bar {
+        flex-direction: column;
+        gap: 10px;
+        align-items: center;
+    }
+
+    /* 7. Smart Playlist Creator Mobile */
+    .length-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .limit-by-selector {
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+    }
+
+    .tied-controls-grid {
+        grid-template-columns: 1fr !important;
+        gap: 8px;
+    }
+
+    .tied-column {
+        padding: 10px 12px;
+    }
+
+    .tied-input-wrap {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .tied-slider {
+        flex: 1;
+    }
+
+    .system-pills {
+        display: flex;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        gap: 6px;
+        padding-bottom: 4px;
+    }
+
+    .system-pills::-webkit-scrollbar {
+        display: none;
+    }
+
+    .btn-system {
+        flex: 0 0 auto;
+        padding: 7px 12px;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+
+    .seed-options-grid {
+        grid-template-columns: 1fr !important;
+        gap: 10px;
+    }
+
+    .seed-card-inner {
+        gap: 10px;
+    }
+
+    .seed-info {
+        min-width: 0;
+        flex: 1;
+    }
+
+    .seed-avatar {
+        width: 38px;
+        height: 38px;
+        font-size: 18px;
+    }
+
+    .song-seed-input-wrap input {
+        font-size: 16px !important;
+    }
+
+    .song-seed-dropdown {
+        max-height: 220px;
+        width: 100%;
+    }
+
+    .playlist-action-bar {
+        flex-direction: column;
+        gap: 10px;
+        align-items: stretch;
+    }
+
+    .playlist-action-bar #btn-generate-playlist {
+        width: 100%;
+        padding: 13px;
+        font-size: 15px;
+        justify-content: center;
+    }
+
+    .preview-header.flex-between {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .preview-actions {
+        display: flex;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .preview-actions .btn {
+        flex: 1;
+        justify-content: center;
+    }
+
+    .export-bar {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .export-btn-group {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        width: 100%;
+    }
+
+    .export-btn-group .btn {
+        width: 100%;
+        justify-content: center;
+        padding: 8px 6px;
+        font-size: 11.5px;
+    }
+
+    #btn-export-zip {
+        grid-column: span 2;
+    }
+
+    /* 8. Recommendations Mobile */
+    .taste-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .taste-actions {
+        display: flex;
+        gap: 6px;
+        width: 100%;
+    }
+
+    .taste-search-wrap {
+        flex: 1;
+    }
+
+    .preset-pills {
+        display: flex;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        gap: 6px;
+        padding-bottom: 4px;
+    }
+
+    .preset-pills::-webkit-scrollbar {
+        display: none;
+    }
+
+    .btn-preset {
+        flex: 0 0 auto;
+        white-space: nowrap;
+        font-size: 12px;
+        padding: 6px 12px;
+    }
+
+    .recs-action-bar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .recs-action-right {
+        flex-direction: column;
+        gap: 8px;
+        width: 100%;
+    }
+
+    #btn-download-all-recs {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .recs-grid {
+        grid-template-columns: 1fr !important;
+        gap: 12px;
+    }
+
+    /* 9. Missing Tracks & Staging Mobile */
+    .table-filter-bar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+    }
+
+    .staging-overview {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+
+    .dropzone-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .dropzone-actions .btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    /* 10. Persistent Audio Player Bar Mobile */
+    .audio-player-bar {
+        height: 64px;
+        padding: 0 10px calc(4px + env(safe-area-inset-bottom, 0px)) 10px;
+        gap: 8px;
+        box-sizing: border-box;
+        background: var(--player-bar-bg, rgba(14, 12, 10, 0.97));
+    }
+
+    .audio-player-bar::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 3px;
+        background: linear-gradient(90deg, var(--primary), var(--accent));
+        width: var(--mobile-progress, 0%);
+        transition: width 0.1s linear;
+        z-index: 1002;
+    }
+
+    .player-left {
+        width: auto;
+        flex: 1;
+        min-width: 0;
+        gap: 10px;
+    }
+
+    .player-art-wrap {
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        flex-shrink: 0;
+    }
+
+    .player-track-info {
+        min-width: 0;
+        flex: 1;
+    }
+
+    .player-title {
+        font-size: 13px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .player-artist {
+        font-size: 11px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .player-center {
+        flex: 0 0 auto;
+        margin: 0;
+        max-width: unset;
+    }
+
+    .player-scrubber-wrap {
+        display: none !important;
+    }
+
+    .player-controls {
+        margin-bottom: 0;
+        gap: 6px;
+    }
+
+    .player-btn {
+        width: 32px;
+        height: 32px;
+        font-size: 13px;
+    }
+
+    .player-btn.player-btn-main {
+        width: 36px;
+        height: 36px;
+        font-size: 15px;
+    }
+
+    .player-right {
+        width: auto;
+        min-width: unset;
+        gap: 4px;
+        flex: 0 0 auto;
+    }
+
+    .player-volume-wrap {
+        display: none !important;
+    }
+
+    .player-btn-icon {
+        width: 28px;
+        height: 28px;
+        font-size: 13px;
+    }
+
+    /* 11. Modals Mobile */
+    .modal-overlay {
+        padding: 8px;
+        align-items: flex-end;
+    }
+
+    .modal-box,
+    .modal-card,
+    .update-modal-card,
+    .delete-modal-card,
+    .consolidate-modal-card {
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: 92vh !important;
+        border-radius: 18px 18px 0 0 !important;
+        margin: 0 !important;
+    }
+
+    .modal-header {
+        padding: 14px 16px;
+    }
+
+    .modal-header h3 {
+        font-size: 16px;
+    }
+
+    .modal-body {
+        padding: 14px 14px;
+    }
+
+    .modal-footer {
+        padding: 12px 14px;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .modal-footer .btn {
+        flex: 1 1 auto;
+        justify-content: center;
+    }
+
+    .delete-stats-grid {
+        grid-template-columns: 1fr 1fr !important;
+        gap: 8px !important;
+    }
+
+    .slide-lockout-track {
+        height: 48px;
+    }
+
+    /* 12. Version Watermark & Progress Banner */
+    .version-watermark {
+        bottom: 74px;
+        left: 10px;
+        font-size: 0.65rem;
+        padding: 2px 6px;
+    }
+
+    .audio-player-bar:not([style*="display: none"]) ~ .version-watermark {
+        bottom: 74px;
+    }
+
+    .progress-banner {
+        padding: 12px 14px;
+        margin-bottom: 12px;
+    }
+
+    .progress-header {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .btn-abort {
+        margin-left: 0;
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* Extra Compact Phones (iPhone SE, smaller Android, <= 400px) */
+@media (max-width: 400px) {
+    .app-container {
+        padding: 6px 6px calc(86px + env(safe-area-inset-bottom, 0px)) 6px;
+    }
+
+    .card {
+        padding: 12px 8px;
+    }
+
+    .brand h1 {
+        font-size: 15px;
+    }
+
+    .player-left {
+        max-width: 150px;
+    }
+}
+

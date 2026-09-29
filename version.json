@@ -1,5 +1,5 @@
 {
-  "version": "1.6.1",
+  "version": "1.6.2",
   "release_date": "2026-09-29",
-  "notes": "Unified resilient search across entire application: normalized punctuation and typographic apostrophes (curly quotes), enabled cross-field multi-token searching, and added track/album match badges and highlights in Music Vault Explorer."
+  "notes": "Added full mobile responsiveness and touch-friendly layouts for smartphones and small aspect-ratio screens across all application tabs, modals, tables, and audio player."
 }
