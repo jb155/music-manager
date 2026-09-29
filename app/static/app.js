@@ -1617,6 +1617,7 @@ async function downloadAllRecommendations() {
 let libraryAvgSongLengthSec = 239.0;
 let currentPlaylistTracks = [];
 let playlistMetadataLoaded = false;
+let currentSeedTrack = null;
 
 function initPlaylistCreator() {
     // 1. Tied Length Controls (Duration <-> Song Count)
@@ -1725,7 +1726,8 @@ function initPlaylistCreator() {
         });
     });
 
-
+    // 2.8 Song Seed & BPM Match Controls
+    initSongSeedControls();
 
     // 3. AI Vibe Preset Chips
     document.querySelectorAll(".btn-prompt-chip").forEach(chip => {
@@ -1793,6 +1795,10 @@ function initPlaylistCreator() {
                     params.targets = (typeof activeVennCircles !== 'undefined') ? activeVennCircles.map(c => c.value.trim()).filter(Boolean) : [];
                     params.target_a = (typeof activeVennCircles !== 'undefined' && activeVennCircles[0]) ? activeVennCircles[0].value : "";
                     params.target_b = (typeof activeVennCircles !== 'undefined' && activeVennCircles[1]) ? activeVennCircles[1].value : "";
+                } else if (mode === "song_seed") {
+                    params.seed_title = currentSeedTrack?.title || "";
+                    params.seed_artist = currentSeedTrack?.artist || "";
+                    params.seed_bpm = currentSeedTrack?.bpm || null;
                 }
 
                 const res = await fetch("/api/playlist/suggest-title", {
@@ -2070,6 +2076,32 @@ async function generatePlaylist() {
             payload.target_b = activeVennCircles[1]?.value || "";
             payload.venn_slice = vennSlice;
             payload.selected_region = selectedVennRegion;
+        } else if (mode === "song_seed") {
+            if (!currentSeedTrack) {
+                showToast("Please search and select a seed song first", "info");
+                const searchInput = document.getElementById("song-seed-search");
+                if (searchInput) {
+                    searchInput.scrollIntoView({ behavior: "smooth", block: "center" });
+                    searchInput.focus();
+                }
+                btnGen.disabled = false;
+                btnGen.innerHTML = origHtml;
+                return;
+            }
+
+            const bpmTolRadio = document.querySelector('input[name="seed-bpm-tol"]:checked');
+            const genreModeRadio = document.querySelector('input[name="seed-genre-mode"]:checked');
+            const halfDoubleToggle = document.getElementById("seed-half-double-toggle");
+            const includeSeedToggle = document.getElementById("seed-include-track-toggle");
+
+            payload.seed_track_id = currentSeedTrack.id;
+            payload.bpm_tolerance = bpmTolRadio ? parseFloat(bpmTolRadio.value) : 0.10;
+            payload.genre_mode = genreModeRadio ? genreModeRadio.value : "compatible";
+            payload.allow_half_double = halfDoubleToggle ? halfDoubleToggle.checked : false;
+            payload.include_seed = includeSeedToggle ? includeSeedToggle.checked : true;
+            payload.seed_bpm = currentSeedTrack.bpm || null;
+            payload.seed_title = currentSeedTrack.title || null;
+            payload.seed_artist = currentSeedTrack.artist || null;
         }
 
         const res = await fetch("/api/playlist/generate", {
@@ -2140,7 +2172,11 @@ function renderPlaylistPreview(tracks, title = null, summary = null) {
                     <i class="fa-solid fa-play"></i>
                 </button>
             </td>
-            <td><strong>${escapeHtml(t.title)}</strong></td>
+            <td>
+                <strong>${escapeHtml(t.title)}</strong>
+                ${t.is_seed ? ` <span class="badge badge-seed" title="Seed Anchor Track"><i class="fa-solid fa-seedling"></i> Seed</span>` : ''}
+                ${t.bpm ? ` <span class="badge badge-bpm" title="Cadence: ${t.bpm} BPM"><i class="fa-solid fa-heart-pulse"></i> ${Math.round(t.bpm)} BPM</span>` : ''}
+            </td>
             <td>${escapeHtml(t.artist)}</td>
             <td class="text-muted">${escapeHtml(t.album || "-")}</td>
             <td><span class="badge" style="font-size: 11px;">${escapeHtml(t.genre || "Rock")}</span></td>
@@ -2230,6 +2266,139 @@ async function exportPlaylist(format) {
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = origHtml;
+        }
+    }
+}
+
+// =========================================================================
+// SONG SEED & BPM MATCH CONTROLS (v1.6.0)
+// =========================================================================
+
+function initSongSeedControls() {
+    const searchInput = document.getElementById("song-seed-search");
+    const clearBtn = document.getElementById("btn-clear-song-seed");
+    const dropdown = document.getElementById("song-seed-dropdown");
+    const card = document.getElementById("selected-seed-card");
+    const reselectBtn = document.getElementById("btn-reselect-seed");
+
+    if (!searchInput || !dropdown) return;
+
+    let debounceTimer = null;
+
+    searchInput.addEventListener("input", (e) => {
+        const query = e.target.value.trim();
+        if (clearBtn) clearBtn.style.display = query ? "flex" : "none";
+
+        clearTimeout(debounceTimer);
+        if (!query) {
+            dropdown.style.display = "none";
+            dropdown.innerHTML = "";
+            return;
+        }
+
+        debounceTimer = setTimeout(async () => {
+            try {
+                dropdown.innerHTML = `<div class="p-3 text-center text-muted text-xs"><i class="fa-solid fa-spinner fa-spin"></i> Searching library songs...</div>`;
+                dropdown.style.display = "block";
+
+                const res = await fetch(`/api/playlist/song-search?query=${encodeURIComponent(query)}&limit=15`);
+                const songs = await res.json();
+
+                if (!songs || songs.length === 0) {
+                    dropdown.innerHTML = `<div class="p-3 text-center text-muted text-xs"><i class="fa-solid fa-circle-exclamation"></i> No tracks found matching "${escapeHtml(query)}"</div>`;
+                    return;
+                }
+
+                dropdown.innerHTML = songs.map(s => `
+                    <div class="song-seed-dropdown-item" data-id="${s.id}">
+                        <div class="seed-item-left">
+                            <span class="seed-item-title">${escapeHtml(s.title)}</span>
+                            <span class="seed-item-meta">${escapeHtml(s.artist)} &bull; ${escapeHtml(s.album || '-')} &bull; ${escapeHtml(s.length_str || '')}</span>
+                        </div>
+                        <div class="seed-item-right">
+                            <span class="badge" style="font-size: 11px;">${escapeHtml(s.genre || 'Music')}</span>
+                            ${s.bpm ? `<span class="badge-bpm"><i class="fa-solid fa-heart-pulse"></i> ${Math.round(s.bpm)} BPM</span>` : `<span class="badge text-muted" style="font-size: 10px; font-family: var(--font-mono);">BPM --</span>`}
+                        </div>
+                    </div>
+                `).join("");
+
+                dropdown.querySelectorAll(".song-seed-dropdown-item").forEach(item => {
+                    item.addEventListener("click", () => {
+                        const sid = parseInt(item.dataset.id);
+                        const song = songs.find(x => x.id === sid);
+                        if (song) {
+                            selectSeedSong(song);
+                        }
+                    });
+                });
+            } catch (err) {
+                console.error("Error searching seed songs:", err);
+                dropdown.innerHTML = `<div class="p-3 text-center text-danger text-xs">Error searching library</div>`;
+            }
+        }, 250);
+    });
+
+    if (clearBtn) {
+        clearBtn.addEventListener("click", () => {
+            searchInput.value = "";
+            clearBtn.style.display = "none";
+            dropdown.style.display = "none";
+            dropdown.innerHTML = "";
+            searchInput.focus();
+        });
+    }
+
+    if (reselectBtn) {
+        reselectBtn.addEventListener("click", () => {
+            if (card) card.style.display = "none";
+            const searchBox = document.querySelector(".song-seed-search-box");
+            if (searchBox) searchBox.style.display = "block";
+            searchInput.focus();
+            searchInput.select();
+        });
+    }
+
+    // Close dropdown on outside click
+    document.addEventListener("click", (e) => {
+        if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+            dropdown.style.display = "none";
+        }
+    });
+}
+
+async function selectSeedSong(track) {
+    currentSeedTrack = track;
+
+    const dropdown = document.getElementById("song-seed-dropdown");
+    if (dropdown) dropdown.style.display = "none";
+
+    const card = document.getElementById("selected-seed-card");
+    const titleEl = document.getElementById("seed-title-text");
+    const artistAlbumEl = document.getElementById("seed-artist-album-text");
+    const genreEl = document.getElementById("seed-genre-text");
+    const bpmTextEl = document.getElementById("seed-bpm-text");
+
+    if (titleEl) titleEl.textContent = track.title;
+    if (artistAlbumEl) artistAlbumEl.textContent = `${track.artist} • ${track.album || '-'}${track.year ? ` (${track.year})` : ''} • ${track.length_str || ''}`;
+    if (genreEl) genreEl.textContent = track.genre || "Unclassified";
+
+    if (card) card.style.display = "block";
+
+    if (track.bpm && track.bpm > 0) {
+        if (bpmTextEl) bpmTextEl.textContent = `${Math.round(track.bpm)} BPM`;
+    } else {
+        if (bpmTextEl) bpmTextEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Detecting BPM...`;
+        try {
+            const res = await fetch(`/api/playlist/track-bpm/${track.id}`);
+            const data = await res.json();
+            if (data.success && data.bpm) {
+                currentSeedTrack.bpm = data.bpm;
+                if (bpmTextEl) bpmTextEl.textContent = `${Math.round(data.bpm)} BPM`;
+            } else {
+                if (bpmTextEl) bpmTextEl.textContent = `120 BPM (est)`;
+            }
+        } catch (e) {
+            if (bpmTextEl) bpmTextEl.textContent = `120 BPM (est)`;
         }
     }
 }

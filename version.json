@@ -1,5 +1,5 @@
 {
-  "version": "1.5.5",
-  "release_date": "2026-09-25",
-  "notes": "Enhanced Quick Music Downloader artist discovery: broad artist queries (such as 'Jackson') now return all matching artists strictly ranked by percentage match with in-library track badges, preventing single-word exact match lockouts."
+  "version": "1.6.0",
+  "release_date": "2026-09-29",
+  "notes": "Added Song Seed & BPM Match mode in Smart Playlist Creator: search and select any song from your library to generate running, workout, or vibe playlists matching its tempo (BPM) and style while preventing discordant genres (e.g. no metal during an electro run)."
 }

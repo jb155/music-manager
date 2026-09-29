@@ -4879,6 +4879,202 @@ paths:
                 "total": 0
             }
 
+    GENRE_FAMILIES = {
+        "electronic": {
+            "keywords": ["electronic", "dance", "house", "techno", "edm", "electro", "trance", "synth", "synthwave", "drum and bass", "dnb", "club", "disco", "eurodance", "indietronica", "electropop"],
+            "compatible": ["electronic", "pop", "hiphop_rnb"],
+            "discordant": ["metal", "classical", "country", "folk", "acoustic"]
+        },
+        "pop": {
+            "keywords": ["pop", "dance-pop", "synthpop", "indie pop", "electropop", "teen pop", "boy band", "k-pop", "j-pop"],
+            "compatible": ["pop", "electronic", "hiphop_rnb", "rock_alt"],
+            "discordant": ["metal", "classical", "death metal"]
+        },
+        "rock_alt": {
+            "keywords": ["rock", "alternative", "indie", "indie rock", "post-punk", "punk", "grunge", "garage", "classic rock", "hard rock", "psychedelic", "britpop"],
+            "compatible": ["rock_alt", "pop", "metal"],
+            "discordant": ["hiphop_rnb", "classical", "electronic"]
+        },
+        "metal": {
+            "keywords": ["metal", "heavy metal", "nu metal", "thrash", "metalcore", "death metal", "black metal", "doom", "industrial metal"],
+            "compatible": ["metal", "rock_alt"],
+            "discordant": ["electronic", "pop", "hiphop_rnb", "country", "classical", "folk", "disco"]
+        },
+        "hiphop_rnb": {
+            "keywords": ["hip hop", "hip-hop", "rap", "r&b", "rnb", "soul", "trap", "urban", "reggae", "dancehall", "funk"],
+            "compatible": ["hiphop_rnb", "pop", "electronic"],
+            "discordant": ["metal", "country", "classical", "rock_alt"]
+        },
+        "acoustic_folk": {
+            "keywords": ["folk", "acoustic", "singer-songwriter", "country", "americana", "bluegrass"],
+            "compatible": ["acoustic_folk", "rock_alt", "pop"],
+            "discordant": ["metal", "electronic", "hiphop_rnb", "techno"]
+        },
+        "jazz_blues": {
+            "keywords": ["jazz", "blues", "soul jazz", "bossa nova", "fusion"],
+            "compatible": ["jazz_blues", "soul", "acoustic_folk"],
+            "discordant": ["metal", "electronic", "techno"]
+        },
+        "classical": {
+            "keywords": ["classical", "orchestral", "soundtrack", "score", "baroque", "cinematic"],
+            "compatible": ["classical"],
+            "discordant": ["metal", "electronic", "pop", "hiphop_rnb", "rock_alt"]
+        }
+    }
+
+    @staticmethod
+    def estimate_bpm_from_audio(file_path: str) -> Optional[float]:
+        """Estimate BPM from an audio file using ffmpeg decoding and numpy onset autocorrelation."""
+        if not file_path or not os.path.exists(file_path):
+            return None
+        import subprocess
+        import numpy as np
+
+        cmd = [
+            'ffmpeg', '-ss', '40', '-t', '50', '-i', file_path,
+            '-vn', '-ac', '1', '-ar', '11025', '-f', 's16le', '-'
+        ]
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            raw_data, _ = proc.communicate(timeout=10)
+            if not raw_data or len(raw_data) < 11025 * 5 * 2:
+                cmd[2] = '0'
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                raw_data, _ = proc.communicate(timeout=10)
+
+            samples = np.frombuffer(raw_data, dtype=np.int16).astype(np.float32)
+            if len(samples) < 11025 * 5:
+                return None
+
+            hop_length = 256
+            frame_length = 512
+            n_frames = (len(samples) - frame_length) // hop_length
+            if n_frames <= 0:
+                return None
+
+            frames = np.lib.stride_tricks.as_strided(
+                samples,
+                shape=(n_frames, frame_length),
+                strides=(samples.strides[0] * hop_length, samples.strides[0])
+            )
+            energy = np.sum(frames ** 2, axis=1)
+            novelty = np.diff(energy)
+            novelty = np.maximum(0, novelty)
+            novelty -= np.mean(novelty)
+            std = np.std(novelty)
+            if std > 0:
+                novelty /= std
+
+            corr = np.correlate(novelty, novelty, mode='full')
+            corr = corr[len(corr)//2:]
+
+            fps = 11025.0 / hop_length
+            min_lag = int(fps * 60.0 / 205.0)
+            max_lag = int(fps * 60.0 / 58.0)
+            if max_lag >= len(corr):
+                max_lag = len(corr) - 1
+
+            search_corr = corr[min_lag:max_lag]
+            if len(search_corr) == 0:
+                return None
+            best_lag = min_lag + int(np.argmax(search_corr))
+            bpm = (fps * 60.0) / best_lag
+            while bpm < 68:
+                bpm *= 2
+            while bpm > 195:
+                bpm /= 2
+            return round(bpm, 1)
+        except Exception as e:
+            logger.warning(f"Error estimating BPM for {file_path}: {e}")
+            return None
+
+    def search_library_songs(self, query: str, limit: int = 15) -> List[Dict[str, Any]]:
+        """Search library songs for playlist seed selection, returning tracks with cached or detected BPM."""
+        db_path = os.path.join(self.beets_dir, "library.db")
+        clean_q = query.strip()
+        if not clean_q:
+            return []
+
+        try:
+            conn = sqlite3.connect(db_path)
+            c = conn.cursor()
+            q_like = f"%{clean_q}%"
+            q_starts = f"{clean_q}%"
+
+            sql = """
+                SELECT id, title, artist, album, genre, length, path, year, bpm
+                FROM items
+                WHERE length > 20
+                  AND (title LIKE ? OR artist LIKE ? OR album LIKE ?)
+                ORDER BY
+                  CASE
+                    WHEN lower(title) = lower(?) THEN 1
+                    WHEN lower(title) LIKE lower(?) THEN 2
+                    WHEN lower(artist) = lower(?) THEN 3
+                    WHEN lower(artist) LIKE lower(?) THEN 4
+                    ELSE 5
+                  END,
+                  length DESC
+                LIMIT ?
+            """
+            c.execute(sql, (q_like, q_like, q_like, clean_q, q_starts, clean_q, q_starts, max(1, min(50, limit))))
+            rows = c.fetchall()
+            conn.close()
+
+            songs = []
+            for r in rows:
+                tid, title, artist, album, genre, length, path_val, year, bpm_val = r
+                length_sec = max(1, round(float(length or 0)))
+                songs.append({
+                    "id": tid,
+                    "title": title or "Unknown Title",
+                    "artist": artist or "Unknown Artist",
+                    "album": album or "-",
+                    "genre": genre or "Unclassified",
+                    "length": length_sec,
+                    "length_str": f"{length_sec // 60}:{length_sec % 60:02d}",
+                    "year": year if year and year > 1900 else "",
+                    "bpm": round(float(bpm_val), 1) if bpm_val and float(bpm_val) > 0 else None
+                })
+            return songs
+        except Exception as e:
+            logger.error(f"Error searching library songs: {e}", exc_info=True)
+            return []
+
+    def get_or_calculate_track_bpm(self, track_id: int) -> Dict[str, Any]:
+        """Fetch or calculate BPM for a track and persist it to database."""
+        db_path = os.path.join(self.beets_dir, "library.db")
+        try:
+            conn = sqlite3.connect(db_path)
+            c = conn.cursor()
+            c.execute("SELECT id, title, artist, genre, path, bpm FROM items WHERE id = ?", (track_id,))
+            row = c.fetchone()
+            if not row:
+                conn.close()
+                return {"success": False, "error": "Track not found"}
+
+            tid, title, artist, genre, path_val, bpm_val = row
+            path_str = self.resolve_audio_path(path_val)
+
+            if bpm_val and float(bpm_val) > 0:
+                conn.close()
+                return {"success": True, "bpm": round(float(bpm_val), 1), "cached": True}
+
+            bpm = self.estimate_bpm_from_audio(path_str)
+            if bpm:
+                try:
+                    c.execute("UPDATE items SET bpm = ? WHERE id = ?", (round(bpm), tid))
+                    conn.commit()
+                except Exception as e:
+                    logger.debug(f"Could not persist BPM to DB: {e}")
+                conn.close()
+                return {"success": True, "bpm": bpm, "cached": False}
+            conn.close()
+            return {"success": False, "error": "Could not calculate BPM"}
+        except Exception as e:
+            logger.error(f"Error in get_or_calculate_track_bpm: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
     def generate_playlist_name(self, mode: str, params: Dict[str, Any], tracks: List[Dict[str, Any]], ai_suggested_name: Optional[str] = None) -> str:
         """Generate a creative, highly relevant playlist name based on mode, parameters, and curated tracks."""
         if ai_suggested_name and ai_suggested_name.strip():
@@ -4909,8 +5105,24 @@ paths:
             g = re.sub(r'\s*&\s*[0-9]{2}s\s*', ' ', g_name)
             return re.sub(r'\s+', ' ', g).strip()
 
+        # 0. SONG SEED & BPM RUN / RADIO
+        if mode == "song_seed":
+            seed_title = params.get("seed_title") or (tracks[0].get("title") if tracks else "Track")
+            seed_artist = params.get("seed_artist") or (tracks[0].get("artist") if tracks else "Artist")
+            seed_bpm = params.get("seed_bpm") or (tracks[0].get("bpm") if tracks else None)
+            bpm_str = f"{round(float(seed_bpm))} BPM " if seed_bpm else ""
+            genre_name = clean_top_genre if clean_top_genre != "Vibe" else "Pace"
+            templates = [
+                f"{bpm_str}{genre_name} Run ({seed_title})",
+                f"{seed_title} Radio ({bpm_str}Flow)",
+                f"{bpm_str}Workout: {seed_artist} & Similar",
+                f"{seed_artist} - {seed_title} Radio",
+                f"{bpm_str}{genre_name} Rhythm Run"
+            ]
+            return random.choice(templates)
+
         # 1. ARTIST SEED & FLOW
-        if mode == "artist_seed":
+        elif mode == "artist_seed":
             seed_artists = params.get("seed_artists", [])
             if not seed_artists and top_artists:
                 seed_artists = top_artists[:2]
@@ -5095,6 +5307,9 @@ paths:
         def _format_track_row(r):
             path_str = self.resolve_audio_path(r[6])
             length_sec = max(1, round(float(r[5] or 0)))
+            bpm_val = None
+            if len(r) > 8 and r[8] and float(r[8]) > 0:
+                bpm_val = round(float(r[8]), 1)
             return {
                 "id": r[0],
                 "title": r[1],
@@ -5106,7 +5321,8 @@ paths:
                 "length_str": f"{length_sec // 60}:{length_sec % 60:02d}",
                 "path": path_str,
                 "size_bytes": os.path.getsize(path_str) if os.path.exists(path_str) else 0,
-                "file_exists": os.path.exists(path_str)
+                "file_exists": os.path.exists(path_str),
+                "bpm": bpm_val
             }
 
         conn = None
@@ -5363,6 +5579,176 @@ paths:
                         break
                     if limit_by == "time" and cur_dur >= target_duration_sec - 45:
                         break
+
+            # -------------------------------------------------------------
+            # MODE: SONG SEED & BPM MATCH (WORKOUT / RUN / VIBE RADIO)
+            # -------------------------------------------------------------
+            elif mode == "song_seed":
+                seed_id = params.get("seed_track_id")
+                bpm_tolerance = float(params.get("bpm_tolerance", 0.10))
+                genre_mode = params.get("genre_mode", "compatible")  # compatible, strict, any
+                allow_half_double = bool(params.get("allow_half_double", False))
+                include_seed = bool(params.get("include_seed", True))
+
+                seed_row = None
+                if seed_id:
+                    c.execute("SELECT id, title, artist, album, genre, length, path, year, bpm FROM items WHERE id = ?", (seed_id,))
+                    seed_row = c.fetchone()
+
+                if not seed_row:
+                    c.execute("SELECT id, title, artist, album, genre, length, path, year, bpm FROM items WHERE length BETWEEN 120 AND 360 AND (genre LIKE '%dance%' OR genre LIKE '%rock%' OR genre LIKE '%pop%' OR genre LIKE '%electronic%') ORDER BY RANDOM() LIMIT 1")
+                    seed_row = c.fetchone()
+                if not seed_row:
+                    c.execute("SELECT id, title, artist, album, genre, length, path, year, bpm FROM items WHERE length > 60 ORDER BY RANDOM() LIMIT 1")
+                    seed_row = c.fetchone()
+
+                if seed_row:
+                    seed_track = _format_track_row(seed_row[:8] + (seed_row[8],))
+                    seed_id = seed_row[0]
+                    seed_title = seed_row[1]
+                    seed_artist = seed_row[2]
+                    seed_genre = (seed_row[4] or "").lower()
+                    seed_bpm = seed_row[8]
+
+                    if not seed_bpm or float(seed_bpm) <= 0:
+                        computed_bpm = self.estimate_bpm_from_audio(seed_track["path"])
+                        if computed_bpm:
+                            seed_bpm = computed_bpm
+                            try:
+                                c.execute("UPDATE items SET bpm = ? WHERE id = ?", (round(computed_bpm), seed_id))
+                                conn.commit()
+                            except Exception:
+                                pass
+                        else:
+                            seed_bpm = 120.0
+                    else:
+                        seed_bpm = float(seed_bpm)
+
+                    seed_track["bpm"] = round(seed_bpm, 1)
+                    seed_track["is_seed"] = True
+
+                    # Macro family detection for genre compatibility
+                    matched_family = "electronic"
+                    for fam, f_data in self.GENRE_FAMILIES.items():
+                        if any(kw in seed_genre for kw in f_data["keywords"]):
+                            matched_family = fam
+                            break
+
+                    fam_info = self.GENRE_FAMILIES.get(matched_family, self.GENRE_FAMILIES["electronic"])
+
+                    where_clauses = ["length BETWEEN 75 AND 480", "id != ?"]
+                    query_params = [seed_id]
+
+                    if genre_mode == "strict":
+                        seed_words = [w for w in re.findall(r'\b\w+\b', seed_genre) if len(w) >= 3 and w not in ["the", "and", "music"]]
+                        if seed_words:
+                            kw_clause = " OR ".join(["lower(genre) LIKE ?"] * len(seed_words[:6]))
+                            where_clauses.append(f"({kw_clause})")
+                            query_params.extend([f"%{w}%" for w in seed_words[:6]])
+                    elif genre_mode == "compatible":
+                        compat_kws = []
+                        for cf in fam_info.get("compatible", [matched_family]):
+                            compat_kws.extend(self.GENRE_FAMILIES.get(cf, {}).get("keywords", []))
+                        if compat_kws:
+                            c_clause = " OR ".join(["lower(genre) LIKE ?"] * len(compat_kws[:12]))
+                            where_clauses.append(f"({c_clause})")
+                            query_params.extend([f"%{kw}%" for kw in compat_kws[:12]])
+
+                        discord_kws = fam_info.get("discordant", [])
+                        if discord_kws:
+                            d_clause = " AND ".join(["lower(genre) NOT LIKE ?"] * len(discord_kws[:8]))
+                            where_clauses.append(f"({d_clause})")
+                            query_params.extend([f"%{kw}%" for kw in discord_kws[:8]])
+
+                    min_bpm = seed_bpm * (1.0 - bpm_tolerance)
+                    max_bpm = seed_bpm * (1.0 + bpm_tolerance)
+
+                    c.execute(f"SELECT id, title, artist, album, genre, length, path, year, bpm FROM items WHERE {' AND '.join(where_clauses)} AND bpm IS NOT NULL AND bpm > 0 ORDER BY RANDOM() LIMIT 50", query_params)
+                    known_bpm_rows = c.fetchall()
+
+                    c.execute(f"SELECT id, title, artist, album, genre, length, path, year, bpm FROM items WHERE {' AND '.join(where_clauses)} AND (bpm IS NULL OR bpm <= 0) ORDER BY RANDOM() LIMIT 75", query_params)
+                    unknown_bpm_rows = c.fetchall()
+
+                    def _eval_bpm(r):
+                        tid, title, artist, album, genre, length, path, year, b_val = r
+                        path_str = self.resolve_audio_path(path)
+                        b = self.estimate_bpm_from_audio(path_str)
+                        return (tid, title, artist, album, genre, length, path, year, b)
+
+                    analyzed_rows = []
+                    if unknown_bpm_rows:
+                        from concurrent.futures import ThreadPoolExecutor
+                        with ThreadPoolExecutor(max_workers=8) as ex:
+                            analyzed_rows = list(ex.map(_eval_bpm, unknown_bpm_rows))
+
+                        try:
+                            to_update = [(round(ar[8]), ar[0]) for ar in analyzed_rows if ar[8] and ar[8] > 0]
+                            if to_update:
+                                c.executemany("UPDATE items SET bpm = ? WHERE id = ?", to_update)
+                                conn.commit()
+                        except Exception as e:
+                            logger.debug(f"Failed to batch update BPMs: {e}")
+
+                    all_evaluated = known_bpm_rows + [ar for ar in analyzed_rows if ar[8] is not None]
+
+                    valid_candidates = []
+                    for r in all_evaluated:
+                        cand_bpm = float(r[8] or 0)
+                        if cand_bpm <= 0:
+                            continue
+
+                        diff = abs(cand_bpm - seed_bpm)
+                        if allow_half_double:
+                            diff = min(diff, abs(cand_bpm * 2 - seed_bpm), abs(cand_bpm / 2 - seed_bpm))
+
+                        if diff <= (seed_bpm * bpm_tolerance) or (allow_half_double and (cand_bpm * 2 >= min_bpm and cand_bpm * 2 <= max_bpm)):
+                            formatted = _format_track_row(r)
+                            formatted["bpm"] = round(cand_bpm, 1)
+                            formatted["bpm_diff"] = round(diff, 1)
+                            valid_candidates.append(formatted)
+
+                    if len(valid_candidates) < (target_tracks if limit_by == "songs" else 8):
+                        wider_tol = max(0.20, bpm_tolerance * 1.8)
+                        wider_min = seed_bpm * (1.0 - wider_tol)
+                        wider_max = seed_bpm * (1.0 + wider_tol)
+                        for r in all_evaluated:
+                            cand_bpm = float(r[8] or 0)
+                            if cand_bpm <= 0:
+                                continue
+                            if any(vc["id"] == r[0] for vc in valid_candidates):
+                                continue
+                            diff = abs(cand_bpm - seed_bpm)
+                            if wider_min <= cand_bpm <= wider_max:
+                                formatted = _format_track_row(r)
+                                formatted["bpm"] = round(cand_bpm, 1)
+                                formatted["bpm_diff"] = round(diff, 1)
+                                valid_candidates.append(formatted)
+
+                    valid_candidates.sort(key=lambda x: x.get("bpm_diff", 999.0))
+
+                    cur_dur = 0
+                    if include_seed:
+                        seen_ids.add(seed_track["id"])
+                        selected_tracks.append(seed_track)
+                        cur_dur += seed_track["length"]
+
+                    artist_counts_map = {seed_artist.lower(): 1} if include_seed else {}
+                    for item in valid_candidates:
+                        if item["id"] in seen_ids:
+                            continue
+                        art_key = item["artist"].lower()
+                        if artist_counts_map.get(art_key, 0) >= 2:
+                            continue
+
+                        seen_ids.add(item["id"])
+                        selected_tracks.append(item)
+                        cur_dur += item["length"]
+                        artist_counts_map[art_key] = artist_counts_map.get(art_key, 0) + 1
+
+                        if limit_by == "songs" and len(selected_tracks) >= target_tracks:
+                            break
+                        if limit_by == "time" and cur_dur >= target_duration_sec - 45:
+                            break
 
             # -------------------------------------------------------------
             # MODE 5: AI CURATOR (OLLAMA)

@@ -3329,6 +3329,314 @@ g.venn-zone.selected-zone circle.core-circle {
     display: inline-block;
 }
 
+/* ==========================================================================
+   SONG SEED & BPM MATCH STYLES (v1.6.0)
+   ========================================================================== */
+
+.song-seed-search-box {
+    position: relative;
+    width: 100%;
+}
+
+.song-seed-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+.song-seed-input {
+    width: 100%;
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    color: #f8fafc;
+    padding: 10px 38px 10px 14px;
+    font-size: 13.5px;
+    transition: all 0.2s ease;
+    outline: none;
+}
+
+.song-seed-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 14px rgba(139, 92, 246, 0.35);
+    background: rgba(15, 23, 42, 0.9);
+}
+
+.btn-clear-seed {
+    position: absolute;
+    right: 10px;
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 4px;
+    font-size: 13px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s;
+}
+
+.btn-clear-seed:hover {
+    color: #f8fafc;
+}
+
+.song-seed-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 6px;
+    background: rgba(15, 23, 42, 0.97);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    border-radius: 12px;
+    max-height: 320px;
+    overflow-y: auto;
+    z-index: 250;
+    box-shadow: 0 14px 35px rgba(0, 0, 0, 0.6);
+}
+
+.song-seed-dropdown-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    cursor: pointer;
+    transition: background 0.15s;
+    gap: 12px;
+}
+
+.song-seed-dropdown-item:hover {
+    background: rgba(139, 92, 246, 0.18);
+}
+
+.song-seed-dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.seed-item-left {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.seed-item-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #f8fafc;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+.seed-item-meta {
+    font-size: 11.5px;
+    color: #94a3b8;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+.seed-item-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.selected-seed-card {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(6, 182, 212, 0.1));
+    border: 1px solid rgba(139, 92, 246, 0.4);
+    border-radius: 12px;
+    padding: 14px 18px;
+    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.3);
+    animation: fadeIn 0.2s ease;
+}
+
+.seed-card-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.seed-avatar {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: rgba(139, 92, 246, 0.25);
+    border: 1px solid rgba(139, 92, 246, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    color: #c084fc;
+    flex-shrink: 0;
+}
+
+.seed-info {
+    flex: 1;
+    min-width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.seed-header-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 2px;
+    flex-wrap: wrap;
+}
+
+.seed-badge {
+    background: rgba(16, 185, 129, 0.2);
+    border: 1px solid rgba(16, 185, 129, 0.4);
+    color: #34d399;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.seed-bpm-pill {
+    background: rgba(244, 63, 94, 0.2);
+    border: 1px solid rgba(244, 63, 94, 0.45);
+    color: #fb7185;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    padding: 2px 10px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.seed-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #f8fafc;
+    margin: 0;
+    line-height: 1.25;
+}
+
+.seed-artist-album {
+    margin: 0;
+    color: #94a3b8;
+    font-size: 12px;
+}
+
+.seed-genre-tag {
+    display: inline-block;
+    font-size: 11px;
+    color: #cbd5e1;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 1px 8px;
+    width: fit-content;
+    margin-top: 2px;
+}
+
+.seed-options-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 14px;
+}
+
+.seed-option-col {
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.radio-pill-group {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.radio-pill {
+    cursor: pointer;
+    margin: 0;
+    user-select: none;
+}
+
+.radio-pill input[type="radio"] {
+    display: none;
+}
+
+.radio-pill span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #cbd5e1;
+    transition: all 0.15s ease;
+}
+
+.radio-pill:hover span {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+}
+
+.radio-pill input[type="radio"]:checked + span {
+    background: rgba(139, 92, 246, 0.25);
+    border-color: var(--primary);
+    color: #fff;
+    font-weight: 600;
+    box-shadow: 0 0 10px rgba(139, 92, 246, 0.3);
+}
+
+.badge-bpm {
+    background: rgba(244, 63, 94, 0.16);
+    border: 1px solid rgba(244, 63, 94, 0.35);
+    color: #fb7185;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.badge-seed {
+    background: rgba(16, 185, 129, 0.2);
+    border: 1px solid rgba(16, 185, 129, 0.4);
+    color: #34d399;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
 
 /* ==========================================================================
    AUDIO PLAYER BAR & PREVIEW CONTROLS (v1.5.0)

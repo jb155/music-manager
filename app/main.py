@@ -37,7 +37,7 @@ except Exception:
     pass
 
 
-APP_VERSION = "1.5.5"
+APP_VERSION = "1.6.0"
 
 app = FastAPI(title="Music Manager Web", version=APP_VERSION)
 
@@ -170,6 +170,14 @@ class PlaylistGenerateRequest(BaseModel):
     venn_slice: Optional[str] = "overlap_only"
     selected_region: Optional[Dict[str, Any]] = None
     playlist_name: Optional[str] = None
+    seed_track_id: Optional[int] = None
+    bpm_tolerance: Optional[float] = 0.10
+    genre_mode: Optional[str] = "compatible"
+    allow_half_double: Optional[bool] = False
+    include_seed: Optional[bool] = True
+    seed_bpm: Optional[float] = None
+    seed_title: Optional[str] = None
+    seed_artist: Optional[str] = None
 
 class PlaylistSuggestTitleRequest(BaseModel):
     mode: str = "random"
@@ -515,6 +523,16 @@ async def get_library_genre_stats():
 @app.get("/api/playlist/metadata")
 async def get_playlist_metadata():
     return service.get_playlist_meta()
+
+@app.get("/api/playlist/song-search")
+async def search_playlist_songs(query: str = Query(..., min_length=1), limit: int = 15):
+    """Search library songs for playlist seed selection, with cached or estimated BPM."""
+    return service.search_library_songs(query=query, limit=limit)
+
+@app.get("/api/playlist/track-bpm/{track_id}")
+async def get_track_bpm_endpoint(track_id: int):
+    """Get or calculate BPM for a specific library track."""
+    return service.get_or_calculate_track_bpm(track_id)
 
 @app.post("/api/playlist/venn-stats")
 async def get_venn_stats_endpoint(req: VennStatsRequest):

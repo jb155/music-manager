@@ -327,6 +327,9 @@
                             <button type="button" class="btn-system" data-system="artist_seed">
                                 <i class="fa-solid fa-seedling"></i> Artist Seed & Flow
                             </button>
+                            <button type="button" class="btn-system" data-system="song_seed">
+                                <i class="fa-solid fa-person-running"></i> Song Match & BPM
+                            </button>
                             <button type="button" class="btn-system" data-system="venn">
                                 <i class="fa-solid fa-circle-nodes"></i> Venn Overlap
                             </button>
@@ -440,6 +443,104 @@
                                     <span class="toggle-slider"></span>
                                     <span class="label-text"><strong>Include Genre-Adjacent Artists</strong> (Weave in discovery tracks from similar artists in library)</span>
                                 </label>
+                            </div>
+                        </div>
+
+                        <!-- System Panel 5.5: Song Seed & BPM Match -->
+                        <div class="system-panel mt-3" id="panel-song_seed" style="display: none;">
+                            <div class="panel-desc text-muted text-xs mb-3">
+                                <i class="fa-solid fa-person-running" style="color: var(--primary);"></i> 
+                                Search and select a seed song you like to run, train, or vibe with. The algorithm matches its exact cadence (BPM) and style while preventing jarring, discordant genres (e.g. no 200 BPM metal during a 125 BPM electro run).
+                            </div>
+
+                            <!-- Song Search Input & Autocomplete Dropdown -->
+                            <div class="song-seed-search-box">
+                                <label class="input-label text-xs mb-1" for="song-seed-search">
+                                    <i class="fa-solid fa-magnifying-glass"></i> Search Library for Seed Song:
+                                </label>
+                                <div class="song-seed-input-wrap">
+                                    <input type="text" id="song-seed-search" class="song-seed-input" placeholder="Type a song title or artist (e.g. 'One More Time', 'Starboy', 'Thunderstruck')..." autocomplete="off">
+                                    <button type="button" class="btn-clear-seed" id="btn-clear-song-seed" style="display: none;" title="Clear search">
+                                        <i class="fa-solid fa-xmark"></i>
+                                    </button>
+                                </div>
+                                <div class="song-seed-dropdown glass" id="song-seed-dropdown" style="display: none;"></div>
+                            </div>
+
+                            <!-- Selected Seed Song Display Card -->
+                            <div class="selected-seed-card glass mt-3" id="selected-seed-card" style="display: none;">
+                                <div class="seed-card-inner">
+                                    <div class="seed-avatar">
+                                        <i class="fa-solid fa-compact-disc fa-spin-pulse"></i>
+                                    </div>
+                                    <div class="seed-info">
+                                        <div class="seed-header-row">
+                                            <span class="seed-badge"><i class="fa-solid fa-seedling"></i> Active Seed</span>
+                                            <span class="seed-bpm-pill" id="seed-bpm-badge">
+                                                <i class="fa-solid fa-heart-pulse"></i> <span id="seed-bpm-text">Calculating BPM...</span>
+                                            </span>
+                                        </div>
+                                        <h4 class="seed-title" id="seed-title-text">-</h4>
+                                        <p class="seed-artist-album text-xs text-muted" id="seed-artist-album-text">-</p>
+                                        <div class="seed-genre-tag" id="seed-genre-text">-</div>
+                                    </div>
+                                    <div class="seed-actions">
+                                        <button type="button" class="btn btn-secondary btn-sm" id="btn-reselect-seed">
+                                            <i class="fa-solid fa-arrows-rotate"></i> Change Song
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Song Match Tuning Options -->
+                            <div class="seed-options-grid mt-3">
+                                <!-- BPM Tolerance -->
+                                <div class="seed-option-col">
+                                    <span class="section-subtitle text-xs"><i class="fa-solid fa-gauge-high"></i> Tempo (BPM) Tolerance:</span>
+                                    <div class="radio-pill-group mt-1">
+                                        <label class="radio-pill">
+                                            <input type="radio" name="seed-bpm-tol" value="0.05">
+                                            <span><strong>±5%</strong> (Strict Pace)</span>
+                                        </label>
+                                        <label class="radio-pill">
+                                            <input type="radio" name="seed-bpm-tol" value="0.10" checked>
+                                            <span><strong>±10%</strong> (Balanced)</span>
+                                        </label>
+                                        <label class="radio-pill">
+                                            <input type="radio" name="seed-bpm-tol" value="0.15">
+                                            <span><strong>±15%</strong> (Wide Mix)</span>
+                                        </label>
+                                    </div>
+                                    <label class="toggle-control mt-2 text-xs">
+                                        <input type="checkbox" id="seed-half-double-toggle">
+                                        <span class="toggle-slider"></span>
+                                        <span class="label-text">Allow Half/Double Tempo (e.g. 62 or 250 BPM)</span>
+                                    </label>
+                                </div>
+
+                                <!-- Genre & Style Filtering -->
+                                <div class="seed-option-col">
+                                    <span class="section-subtitle text-xs"><i class="fa-solid fa-shield-halved"></i> Musical Style & Genre Match:</span>
+                                    <div class="radio-pill-group mt-1">
+                                        <label class="radio-pill">
+                                            <input type="radio" name="seed-genre-mode" value="compatible" checked>
+                                            <span><strong>Compatible</strong> (Style Harmony)</span>
+                                        </label>
+                                        <label class="radio-pill">
+                                            <input type="radio" name="seed-genre-mode" value="strict">
+                                            <span><strong>Strict</strong> (Same Genre Only)</span>
+                                        </label>
+                                        <label class="radio-pill">
+                                            <input type="radio" name="seed-genre-mode" value="any">
+                                            <span><strong>Any Genre</strong> (Pure BPM)</span>
+                                        </label>
+                                    </div>
+                                    <label class="toggle-control mt-2 text-xs">
+                                        <input type="checkbox" id="seed-include-track-toggle" checked>
+                                        <span class="toggle-slider"></span>
+                                        <span class="label-text">Start playlist with seed song as Track #1</span>
+                                    </label>
+                                </div>
                             </div>
                         </div>
 
@@ -1082,12 +1183,12 @@
 
     <!-- Subtle Version Watermark (Bottom-Left) -->
     <div class="version-watermark" id="app-version-watermark" title="Music Manager (Click to view version and update details)">
-        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.5.5
+        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.6.0
     </div>
 
     <!-- Notification Toast -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/app.js?v=1.5.5"></script>
+    <script src="/static/app.js?v=1.6.0"></script>
 </body>
 </html>
