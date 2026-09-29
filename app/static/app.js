@@ -1753,7 +1753,7 @@ function initPlaylistCreator() {
     // 2.8 Song Seed & BPM Match Controls
     initSongSeedControls();
 
-    // 3. AI Vibe Preset Chips
+    // 3. AI Vibe Preset Chips & AI DJ Controls
     document.querySelectorAll(".btn-prompt-chip").forEach(chip => {
         chip.addEventListener("click", () => {
             const promptInput = document.getElementById("playlist-ai-prompt");
@@ -1763,6 +1763,7 @@ function initPlaylistCreator() {
             }
         });
     });
+    initAiCuratorControls();
 
     // 4. Clean & Deduplicate + Tag Genres Buttons
     const btnSanitize = document.getElementById("btn-sanitize-library");
@@ -2074,10 +2075,19 @@ async function generatePlaylist() {
             payload.smart_shuffle = divToggle ? divToggle.checked : true;
         } else if (mode === "ai") {
             const promptInput = document.getElementById("playlist-ai-prompt");
-            const prompt = (promptInput && promptInput.value.trim()) ? promptInput.value.trim() : "Energetic driving road trip rock mix";
-            const modelSelect = document.getElementById("ai-model-select");
+            const prompt = (promptInput && promptInput.value.trim()) ? promptInput.value.trim() : "High energy road trip mix with driving rhythms and anthems";
+            const styleRadio = document.querySelector('input[name="ai-curator-style"]:checked');
+            const provSelect = document.getElementById("ai-provider-select");
+            const modelInput = document.getElementById("ai-model-input");
+            const keyInput = document.getElementById("ai-api-key-input");
+            const baseInput = document.getElementById("ai-baseurl-input");
+
             payload.prompt = prompt;
-            payload.model = modelSelect ? modelSelect.value : null;
+            payload.curator_style = styleRadio ? styleRadio.value : "deep_cuts";
+            if (provSelect) payload.ai_provider = provSelect.value;
+            if (modelInput && modelInput.value.trim()) payload.ai_model = modelInput.value.trim();
+            if (keyInput && keyInput.value.trim() && !keyInput.value.startsWith("••••")) payload.ai_api_key = keyInput.value.trim();
+            if (baseInput && baseInput.value.trim()) payload.ai_base_url = baseInput.value.trim();
         } else if (mode === "decade") {
             const selectedDecades = Array.from(document.querySelectorAll("#playlist-decade-chips .chip-selectable.selected")).map(c => parseInt(c.dataset.decade));
             const chronoToggle = document.getElementById("decade-chrono-toggle");
@@ -2153,7 +2163,7 @@ async function generatePlaylist() {
                 previewEl.scrollIntoView({ behavior: "smooth", block: "start" });
             }
         } else {
-            showToast("Could not find enough tracks matching criteria in library", "error");
+            showToast(data.error || "Could not find enough tracks matching criteria in library", "error");
         }
     } catch (e) {
         showToast("Error generating playlist: " + e.message, "error");
@@ -2171,6 +2181,40 @@ function renderPlaylistPreview(tracks, title = null, summary = null) {
     if (title) {
         const titleEl = document.getElementById("preview-playlist-title");
         if (titleEl) titleEl.textContent = title;
+    }
+
+    // Handle AI DJ Liner Notes Card
+    const linerCard = document.getElementById("ai-dj-liner-card");
+    if (linerCard) {
+        if (summary && summary.dj_commentary) {
+            linerCard.style.display = "flex";
+            const commentaryEl = document.getElementById("ai-dj-commentary");
+            if (commentaryEl) commentaryEl.textContent = `"${summary.dj_commentary}"`;
+
+            const providerPill = document.getElementById("ai-dj-provider-pill");
+            if (providerPill) {
+                const provName = (summary.ai_provider || "AI DJ").toUpperCase();
+                const modName = summary.ai_model ? ` (${summary.ai_model})` : "";
+                providerPill.textContent = `${provName}${modName}`;
+            }
+
+            const statsEl = document.getElementById("ai-dj-curation-stats");
+            if (statsEl) {
+                const stats = [];
+                if (summary.ai_matched_songs > 0) {
+                    stats.push(`<span class="ai-stat-pill"><i class="fa-solid fa-wand-magic-sparkles text-primary"></i> ${summary.ai_matched_songs} Song Match${summary.ai_matched_songs > 1 ? 'es' : ''}</span>`);
+                }
+                if (summary.ai_matched_artists > 0) {
+                    stats.push(`<span class="ai-stat-pill"><i class="fa-solid fa-user-check text-info"></i> ${summary.ai_matched_artists} Library Artist${summary.ai_matched_artists > 1 ? 's' : ''}</span>`);
+                }
+                if (summary.vibe_fill_count > 0) {
+                    stats.push(`<span class="ai-stat-pill"><i class="fa-solid fa-wave-square text-success"></i> ${summary.vibe_fill_count} Vibe Fill${summary.vibe_fill_count > 1 ? 's' : ''}</span>`);
+                }
+                statsEl.innerHTML = stats.join(" ");
+            }
+        } else {
+            linerCard.style.display = "none";
+        }
     }
 
     const totalSec = tracks.reduce((acc, t) => acc + (t.length || 0), 0);
@@ -2200,6 +2244,10 @@ function renderPlaylistPreview(tracks, title = null, summary = null) {
                 <strong>${escapeHtml(t.title)}</strong>
                 ${t.is_seed ? ` <span class="badge badge-seed" title="Seed Anchor Track"><i class="fa-solid fa-seedling"></i> Seed</span>` : ''}
                 ${t.bpm ? ` <span class="badge badge-bpm" title="Cadence: ${t.bpm} BPM"><i class="fa-solid fa-heart-pulse"></i> ${Math.round(t.bpm)} BPM</span>` : ''}
+                ${t.match_type === 'ai_track' ? ` <span class="badge badge-ai-song" title="Matched requested song by AI"><i class="fa-solid fa-wand-magic-sparkles"></i> AI Song</span>` : ''}
+                ${t.match_type === 'ai_artist' ? ` <span class="badge badge-ai-artist" title="Artist in Library (AI requested: ${escapeAttr(t.ai_requested_title || '')})"><i class="fa-solid fa-user-check"></i> Library Artist</span>` : ''}
+                ${t.match_type === 'vibe_fill' ? ` <span class="badge badge-vibe" title="Matched to theme vibe"><i class="fa-solid fa-wave-square"></i> Vibe Match</span>` : ''}
+                ${t.vibe_note ? `<div class="text-xs text-muted mt-1" style="font-style: italic;"><i class="fa-solid fa-quote-left text-xs opacity-50"></i> ${escapeHtml(t.vibe_note)}</div>` : ''}
             </td>
             <td>${escapeHtml(t.artist)}</td>
             <td class="text-muted">${escapeHtml(t.album || "-")}</td>
@@ -2425,6 +2473,309 @@ async function selectSeedSong(track) {
             if (bpmTextEl) bpmTextEl.textContent = `120 BPM (est)`;
         }
     }
+}
+
+// =========================================================================
+// AI DJ CURATOR & SETTINGS MANAGEMENT
+// =========================================================================
+
+let savedAiConfig = null;
+
+async function loadAiConfig() {
+    try {
+        const res = await fetch("/api/ai/config");
+        if (!res.ok) return;
+        savedAiConfig = await res.json();
+        renderAiConfigUI(savedAiConfig);
+    } catch (e) {
+        console.warn("Could not load AI config:", e);
+    }
+}
+
+function renderAiConfigUI(cfg) {
+    if (!cfg) return;
+    const providerSelect = document.getElementById("ai-provider-select");
+    const keyInput = document.getElementById("ai-api-key-input");
+    const modelInput = document.getElementById("ai-model-input");
+    const baseInput = document.getElementById("ai-baseurl-input");
+    const badge = document.getElementById("ai-active-provider-badge");
+
+    if (providerSelect && cfg.provider) {
+        providerSelect.value = cfg.provider;
+    }
+
+    if (modelInput) {
+        modelInput.value = cfg.model || "";
+    }
+
+    if (baseInput) {
+        baseInput.value = cfg.base_url || cfg.ollama_host || "";
+    }
+
+    if (keyInput) {
+        if (cfg.has_api_key) {
+            keyInput.placeholder = `Saved: ${cfg.api_key_masked || '••••••••'} (leave blank to keep)`;
+            keyInput.value = "";
+        } else {
+            keyInput.placeholder = "Paste API key here...";
+            keyInput.value = "";
+        }
+    }
+
+    // Update active badge
+    if (badge) {
+        const prov = (cfg.provider || "gemini").toUpperCase();
+        if (cfg.provider === "ollama") {
+            badge.className = "badge badge-primary";
+            badge.innerHTML = `<i class="fa-solid fa-server"></i> Ollama Local`;
+        } else if (cfg.has_api_key) {
+            badge.className = "badge badge-success";
+            badge.innerHTML = `<i class="fa-solid fa-check"></i> ${prov} (Ready)`;
+        } else {
+            badge.className = "badge badge-warning";
+            badge.innerHTML = `<i class="fa-solid fa-key"></i> ${prov} (Set Key)`;
+        }
+    }
+
+    updateProviderFieldVisibility(cfg.provider || "gemini");
+}
+
+function updateProviderFieldVisibility(provider) {
+    const keyGroup = document.getElementById("ai-key-group");
+    const baseGroup = document.getElementById("ai-baseurl-group");
+    const helpLink = document.getElementById("ai-key-help-link");
+    const modelInput = document.getElementById("ai-model-input");
+
+    const providerConfigs = {
+        gemini: {
+            showKey: true,
+            showBase: false,
+            helpText: "Get free Gemini key",
+            helpUrl: "https://aistudio.google.com/app/apikey",
+            defaultModel: "gemini-2.0-flash"
+        },
+        groq: {
+            showKey: true,
+            showBase: false,
+            helpText: "Get free Groq key",
+            helpUrl: "https://console.groq.com/keys",
+            defaultModel: "llama-3.3-70b-versatile"
+        },
+        openai: {
+            showKey: true,
+            showBase: false,
+            helpText: "OpenAI keys",
+            helpUrl: "https://platform.openai.com/api-keys",
+            defaultModel: "gpt-4o-mini"
+        },
+        openrouter: {
+            showKey: true,
+            showBase: false,
+            helpText: "OpenRouter keys",
+            helpUrl: "https://openrouter.ai/keys",
+            defaultModel: "google/gemini-2.0-flash-exp:free"
+        },
+        ollama: {
+            showKey: false,
+            showBase: true,
+            helpText: "",
+            helpUrl: "",
+            defaultModel: "qwen3.5:9b"
+        },
+        custom: {
+            showKey: true,
+            showBase: true,
+            helpText: "",
+            helpUrl: "",
+            defaultModel: "default"
+        }
+    };
+
+    const p = providerConfigs[provider] || providerConfigs.gemini;
+
+    if (keyGroup) keyGroup.style.display = p.showKey ? "block" : "none";
+    if (baseGroup) baseGroup.style.display = p.showBase ? "block" : "none";
+    if (helpLink) {
+        if (p.helpUrl) {
+            helpLink.style.display = "inline";
+            helpLink.href = p.helpUrl;
+            helpLink.textContent = p.helpText;
+        } else {
+            helpLink.style.display = "none";
+        }
+    }
+    if (modelInput && (!modelInput.value || modelInput.value.trim() === "")) {
+        modelInput.placeholder = p.defaultModel;
+    }
+}
+
+async function saveAiConfig() {
+    const btnSave = document.getElementById("btn-save-ai-config");
+    const origHtml = btnSave ? btnSave.innerHTML : "";
+    if (btnSave) {
+        btnSave.disabled = true;
+        btnSave.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Saving...`;
+    }
+
+    try {
+        const provider = document.getElementById("ai-provider-select")?.value || "gemini";
+        const keyInput = document.getElementById("ai-api-key-input");
+        const modelInput = document.getElementById("ai-model-input");
+        const baseInput = document.getElementById("ai-baseurl-input");
+
+        const payload = {
+            provider: provider,
+            model: modelInput?.value.trim() || undefined,
+            base_url: baseInput?.value.trim() || undefined
+        };
+
+        if (keyInput && keyInput.value.trim() && !keyInput.value.startsWith("••••")) {
+            payload.api_key = keyInput.value.trim();
+        }
+
+        const res = await fetch("/api/ai/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        savedAiConfig = data;
+        renderAiConfigUI(data);
+        showToast("AI DJ settings saved successfully!", "success");
+
+        const statusEl = document.getElementById("ai-test-status");
+        if (statusEl) {
+            statusEl.innerHTML = `<span class="text-success"><i class="fa-solid fa-check"></i> Settings saved</span>`;
+        }
+    } catch (e) {
+        showToast("Error saving AI settings: " + e.message, "error");
+    } finally {
+        if (btnSave) {
+            btnSave.disabled = false;
+            btnSave.innerHTML = origHtml;
+        }
+    }
+}
+
+async function testAiConnection() {
+    const btnTest = document.getElementById("btn-test-ai-config");
+    const statusEl = document.getElementById("ai-test-status");
+    const origHtml = btnTest ? btnTest.innerHTML : "";
+
+    if (btnTest) {
+        btnTest.disabled = true;
+        btnTest.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Testing...`;
+    }
+    if (statusEl) {
+        statusEl.innerHTML = `<span class="text-muted"><i class="fa-solid fa-spinner fa-spin"></i> Contacting AI DJ service...</span>`;
+    }
+
+    try {
+        const provider = document.getElementById("ai-provider-select")?.value || "gemini";
+        const keyInput = document.getElementById("ai-api-key-input");
+        const modelInput = document.getElementById("ai-model-input");
+        const baseInput = document.getElementById("ai-baseurl-input");
+
+        const payload = {
+            provider: provider,
+            model: modelInput?.value.trim() || undefined,
+            base_url: baseInput?.value.trim() || undefined
+        };
+
+        if (keyInput && keyInput.value.trim() && !keyInput.value.startsWith("••••")) {
+            payload.api_key = keyInput.value.trim();
+        }
+
+        const res = await fetch("/api/ai/test", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (data.success) {
+            if (statusEl) {
+                statusEl.innerHTML = `<span class="text-success font-semibold"><i class="fa-solid fa-circle-check"></i> ${escapeHtml(data.message || "Connected successfully!")}</span>`;
+            }
+            showToast("AI DJ connected successfully!", "success");
+        } else {
+            if (statusEl) {
+                statusEl.innerHTML = `<span class="text-danger"><i class="fa-solid fa-triangle-exclamation"></i> ${escapeHtml(data.error || "Connection failed")}</span>`;
+            }
+            showToast("AI Test Failed: " + (data.error || "Unknown error"), "error");
+        }
+    } catch (e) {
+        if (statusEl) {
+            statusEl.innerHTML = `<span class="text-danger"><i class="fa-solid fa-circle-xmark"></i> ${escapeHtml(e.message)}</span>`;
+        }
+        showToast("Error testing AI connection: " + e.message, "error");
+    } finally {
+        if (btnTest) {
+            btnTest.disabled = false;
+            btnTest.innerHTML = origHtml;
+        }
+    }
+}
+
+function initAiCuratorControls() {
+    // 1. Toggle AI Settings Drawer
+    const btnToggleSettings = document.getElementById("btn-toggle-ai-settings");
+    const drawer = document.getElementById("ai-settings-drawer");
+    const btnText = document.getElementById("ai-settings-btn-text");
+
+    if (btnToggleSettings && drawer) {
+        btnToggleSettings.addEventListener("click", () => {
+            const isHidden = drawer.style.display === "none";
+            drawer.style.display = isHidden ? "block" : "none";
+            if (btnText) btnText.textContent = isHidden ? "Close" : "Settings";
+        });
+    }
+
+    // 2. Provider Select Change
+    const providerSelect = document.getElementById("ai-provider-select");
+    if (providerSelect) {
+        providerSelect.addEventListener("change", (e) => {
+            updateProviderFieldVisibility(e.target.value);
+            const modelInput = document.getElementById("ai-model-input");
+            if (modelInput) {
+                const defaults = {
+                    gemini: "gemini-2.0-flash",
+                    groq: "llama-3.3-70b-versatile",
+                    openai: "gpt-4o-mini",
+                    openrouter: "google/gemini-2.0-flash-exp:free",
+                    ollama: "qwen3.5:9b",
+                    custom: "default"
+                };
+                modelInput.value = defaults[e.target.value] || "";
+            }
+        });
+    }
+
+    // 3. Toggle Key Visibility
+    const btnToggleKey = document.getElementById("btn-toggle-ai-key-visibility");
+    const keyInput = document.getElementById("ai-api-key-input");
+    if (btnToggleKey && keyInput) {
+        btnToggleKey.addEventListener("click", () => {
+            const isPassword = keyInput.type === "password";
+            keyInput.type = isPassword ? "text" : "password";
+            btnToggleKey.innerHTML = isPassword ? `<i class="fa-regular fa-eye-slash"></i>` : `<i class="fa-regular fa-eye"></i>`;
+        });
+    }
+
+    // 4. Save and Test Buttons
+    const btnSave = document.getElementById("btn-save-ai-config");
+    if (btnSave) {
+        btnSave.addEventListener("click", saveAiConfig);
+    }
+
+    const btnTest = document.getElementById("btn-test-ai-config");
+    if (btnTest) {
+        btnTest.addEventListener("click", testAiConnection);
+    }
+
+    // 5. Load initial config
+    loadAiConfig();
 }
 
 let cachedPlaylistMeta = null;

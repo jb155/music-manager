@@ -212,6 +212,10 @@ class MusicManagerService:
         self.ollama_servers: List[str] = []
         self._load_ollama_config()
 
+        # AI configuration & persistence (Gemini, Groq, OpenAI, OpenRouter, Custom, Ollama)
+        self.ai_config_file = os.path.join(self.beets_dir, "ai_config.json")
+        self.ai_config: Dict[str, Any] = self._load_ai_config()
+
         # Ensure directories exist
         os.makedirs(self.music_dir, exist_ok=True)
         os.makedirs(self.new_music_dir, exist_ok=True)
@@ -433,6 +437,489 @@ paths:
                 json.dump(cfg, f, indent=2)
         except Exception as e:
             logger.warning(f"Could not save ollama_servers.json: {e}")
+
+    # =========================================================================
+    # MULTI-PROVIDER AI CONFIGURATION & EXECUTION ENGINE
+    # =========================================================================
+
+    def _get_default_ai_config(self) -> Dict[str, Any]:
+        """Default AI DJ settings with fallback to environment variables."""
+        return {
+            "provider": os.environ.get("AI_PROVIDER", "gemini"),
+            "api_key": os.environ.get("GEMINI_API_KEY", "") or os.environ.get("AI_API_KEY", ""),
+            "model": os.environ.get("AI_MODEL", "gemini-2.0-flash"),
+            "base_url": os.environ.get("AI_BASE_URL", ""),
+            "curator_style": "deep_cuts",
+            "temperature": 0.7,
+            "ollama_host": getattr(self, "ollama_host", "http://192.168.178.31:11434"),
+            "ollama_model": getattr(self, "ollama_default_model", "qwen3.5:9b")
+        }
+
+    def _load_ai_config(self) -> Dict[str, Any]:
+        """Load AI configuration from /config/beets/ai_config.json with env var fallbacks."""
+        cfg = self._get_default_ai_config()
+        if hasattr(self, "ai_config_file") and os.path.exists(self.ai_config_file):
+            try:
+                with open(self.ai_config_file, "r", encoding="utf-8") as f:
+                    saved = json.load(f)
+                    if isinstance(saved, dict):
+                        for k, v in saved.items():
+                            if v is not None:
+                                if k == "api_key" and str(v).strip().lower() == "none":
+                                    continue
+                                cfg[k] = v
+            except Exception as e:
+                logger.warning(f"Could not load ai_config.json: {e}")
+        return cfg
+
+    def save_ai_config(self, new_cfg: Dict[str, Any]) -> Dict[str, Any]:
+        """Save updated AI configuration to disk."""
+        if not hasattr(self, "ai_config") or not self.ai_config:
+            self.ai_config = self._load_ai_config()
+
+        # Handle API key updating carefully (prevent accidental overwrite with masked string or None)
+        if new_cfg.get("api_key") is not None:
+            key_val = str(new_cfg["api_key"]).strip()
+            if key_val and key_val.lower() != "none" and not key_val.startswith("••••"):
+                self.ai_config["api_key"] = key_val
+            elif (not key_val or key_val.lower() == "none") and new_cfg.get("clear_api_key"):
+                self.ai_config["api_key"] = ""
+
+        # Update other fields
+        for field in ["provider", "model", "base_url", "curator_style", "temperature", "ollama_host", "ollama_model"]:
+            if field in new_cfg and new_cfg[field] is not None:
+                self.ai_config[field] = new_cfg[field]
+
+        # Sync ollama_host if updated
+        if self.ai_config.get("ollama_host"):
+            self.ollama_host = normalize_ollama_host(self.ai_config["ollama_host"])
+
+        try:
+            with open(self.ai_config_file, "w", encoding="utf-8") as f:
+                json.dump(self.ai_config, f, indent=2)
+            logger.info(f"AI config saved to {self.ai_config_file}")
+        except Exception as e:
+            logger.warning(f"Could not save ai_config.json: {e}")
+
+        return self.get_ai_config()
+
+    def get_ai_config(self) -> Dict[str, Any]:
+        """Return AI configuration with API key masked for safe client delivery."""
+        if not hasattr(self, "ai_config") or not self.ai_config:
+            self.ai_config = self._load_ai_config()
+        cfg = dict(self.ai_config)
+        api_key = cfg.get("api_key", "")
+        if api_key and str(api_key).strip().lower() == "none":
+            api_key = ""
+            self.ai_config["api_key"] = ""
+            cfg["api_key"] = ""
+        cfg["has_api_key"] = bool(api_key and len(api_key) > 4)
+        if api_key:
+            if len(api_key) > 8:
+                cfg["api_key_masked"] = api_key[:4] + "••••••••" + api_key[-4:]
+            else:
+                cfg["api_key_masked"] = "••••••••"
+        else:
+            cfg["api_key_masked"] = ""
+        cfg["api_key"] = cfg["api_key_masked"]
+        return cfg
+
+    def clean_ai_json_response(self, raw_text: str) -> Dict[str, Any]:
+        """Clean markdown wrapping, reasoning tags, and parse JSON from AI models."""
+        if not raw_text or not raw_text.strip():
+            raise ValueError("AI service returned an empty response")
+        clean = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL).strip()
+        code_block = re.search(r'```(?:json)?\s*(\{[\s\S]*\}|\[[\s\S]*\])\s*```', clean)
+        if code_block:
+            clean = code_block.group(1).strip()
+        else:
+            brace_match = re.search(r'(\{[\s\S]*\})', clean)
+            if brace_match:
+                clean = brace_match.group(1).strip()
+        try:
+            return json.loads(clean)
+        except json.JSONDecodeError as err:
+            logger.error(f"Failed to parse AI JSON response: {clean[:400]}")
+            raise ValueError(f"AI returned invalid JSON: {err}")
+
+    async def call_ai_provider(
+        self,
+        provider: str,
+        prompt: str,
+        system_prompt: str = "",
+        model: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        temperature: float = 0.7,
+        timeout: float = 60.0
+    ) -> str:
+        """Call any chosen AI provider (Gemini, Groq, OpenAI, OpenRouter, Custom, Ollama) and return raw response string."""
+        prov = (provider or "gemini").lower().strip()
+        ai_cfg = self._load_ai_config()
+
+        # Resolve api_key
+        key = api_key if (api_key and not api_key.startswith("••••")) else ai_cfg.get("api_key", "")
+        temp = float(temperature if temperature is not None else ai_cfg.get("temperature", 0.7))
+
+        loop = asyncio.get_event_loop()
+
+        # -------------------------------------------------------------
+        # 1. GOOGLE GEMINI (Free Tier available at aistudio.google.com)
+        # -------------------------------------------------------------
+        if prov == "gemini":
+            mod = model or ai_cfg.get("model") or "gemini-2.0-flash"
+            if not key:
+                key = os.environ.get("GEMINI_API_KEY", "")
+            if not key:
+                raise ValueError("No Gemini API key configured. Please get a free API key at https://aistudio.google.com and enter it in AI Settings.")
+
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{mod}:generateContent?key={key}"
+            payload: Dict[str, Any] = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "temperature": temp
+                }
+            }
+            if system_prompt:
+                payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
+
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json", "User-Agent": "OMV-MusicManager"}
+            )
+
+            def _fetch_gemini():
+                try:
+                    with urllib.request.urlopen(req, timeout=timeout) as response:
+                        return response.read().decode("utf-8")
+                except urllib.error.HTTPError as he:
+                    err_txt = he.read().decode("utf-8", errors="replace")
+                    try:
+                        err_obj = json.loads(err_txt)
+                        msg = err_obj.get("error", {}).get("message", err_txt)
+                    except Exception:
+                        msg = err_txt
+                    raise ValueError(f"Gemini API Error ({he.code}): {msg}")
+
+            raw_body = await loop.run_in_executor(None, _fetch_gemini)
+            resp_json = json.loads(raw_body)
+            candidates = resp_json.get("candidates", [])
+            if not candidates:
+                feedback = resp_json.get("promptFeedback", {})
+                raise ValueError(f"Gemini returned no candidates (feedback: {feedback})")
+            parts = candidates[0].get("content", {}).get("parts", [])
+            if not parts:
+                raise ValueError("Gemini candidate had no text parts")
+            return parts[0].get("text", "")
+
+        # -------------------------------------------------------------
+        # 2. GROQ (Ultra-fast free tier at console.groq.com)
+        # -------------------------------------------------------------
+        elif prov == "groq":
+            mod = model or ai_cfg.get("model") or "llama-3.3-70b-versatile"
+            if not key:
+                key = os.environ.get("GROQ_API_KEY", "")
+            if not key:
+                raise ValueError("No Groq API key configured. Please get a free API key at https://console.groq.com and enter it in AI Settings.")
+
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
+            payload = {
+                "model": mod,
+                "messages": messages,
+                "response_format": {"type": "json_object"},
+                "temperature": temp
+            }
+
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {key}",
+                    "User-Agent": "OMV-MusicManager"
+                }
+            )
+
+            def _fetch_groq():
+                try:
+                    with urllib.request.urlopen(req, timeout=timeout) as response:
+                        return response.read().decode("utf-8")
+                except urllib.error.HTTPError as he:
+                    err_txt = he.read().decode("utf-8", errors="replace")
+                    try:
+                        err_obj = json.loads(err_txt)
+                        msg = err_obj.get("error", {}).get("message", err_txt)
+                    except Exception:
+                        msg = err_txt
+                    raise ValueError(f"Groq API Error ({he.code}): {msg}")
+
+            raw_body = await loop.run_in_executor(None, _fetch_groq)
+            resp_json = json.loads(raw_body)
+            choices = resp_json.get("choices", [])
+            if not choices:
+                raise ValueError("Groq returned no completion choices")
+            return choices[0].get("message", {}).get("content", "")
+
+        # -------------------------------------------------------------
+        # 3. OPENAI (GPT-4o mini / GPT-4o)
+        # -------------------------------------------------------------
+        elif prov == "openai":
+            mod = model or ai_cfg.get("model") or "gpt-4o-mini"
+            if not key:
+                key = os.environ.get("OPENAI_API_KEY", "")
+            if not key:
+                raise ValueError("No OpenAI API key configured. Please enter your OpenAI API key in AI Settings.")
+
+            url = "https://api.openai.com/v1/chat/completions"
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
+            payload = {
+                "model": mod,
+                "messages": messages,
+                "response_format": {"type": "json_object"},
+                "temperature": temp
+            }
+
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {key}",
+                    "User-Agent": "OMV-MusicManager"
+                }
+            )
+
+            def _fetch_openai():
+                try:
+                    with urllib.request.urlopen(req, timeout=timeout) as response:
+                        return response.read().decode("utf-8")
+                except urllib.error.HTTPError as he:
+                    err_txt = he.read().decode("utf-8", errors="replace")
+                    try:
+                        err_obj = json.loads(err_txt)
+                        msg = err_obj.get("error", {}).get("message", err_txt)
+                    except Exception:
+                        msg = err_txt
+                    raise ValueError(f"OpenAI API Error ({he.code}): {msg}")
+
+            raw_body = await loop.run_in_executor(None, _fetch_openai)
+            resp_json = json.loads(raw_body)
+            choices = resp_json.get("choices", [])
+            if not choices:
+                raise ValueError("OpenAI returned no completion choices")
+            return choices[0].get("message", {}).get("content", "")
+
+        # -------------------------------------------------------------
+        # 4. OPENROUTER (Free models available e.g. gemini-2.0-flash-exp:free)
+        # -------------------------------------------------------------
+        elif prov == "openrouter":
+            mod = model or ai_cfg.get("model") or "google/gemini-2.0-flash-exp:free"
+            if not key:
+                key = os.environ.get("OPENROUTER_API_KEY", "")
+            if not key:
+                raise ValueError("No OpenRouter API key configured. Please enter your OpenRouter key in AI Settings.")
+
+            url = "https://openrouter.ai/api/v1/chat/completions"
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
+            payload = {
+                "model": mod,
+                "messages": messages,
+                "response_format": {"type": "json_object"},
+                "temperature": temp
+            }
+
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {key}",
+                    "HTTP-Referer": "http://musicmanager.local",
+                    "X-Title": "MusicManager",
+                    "User-Agent": "OMV-MusicManager"
+                }
+            )
+
+            def _fetch_openrouter():
+                try:
+                    with urllib.request.urlopen(req, timeout=timeout) as response:
+                        return response.read().decode("utf-8")
+                except urllib.error.HTTPError as he:
+                    err_txt = he.read().decode("utf-8", errors="replace")
+                    try:
+                        err_obj = json.loads(err_txt)
+                        msg = err_obj.get("error", {}).get("message", err_txt)
+                    except Exception:
+                        msg = err_txt
+                    raise ValueError(f"OpenRouter Error ({he.code}): {msg}")
+
+            raw_body = await loop.run_in_executor(None, _fetch_openrouter)
+            resp_json = json.loads(raw_body)
+            choices = resp_json.get("choices", [])
+            if not choices:
+                raise ValueError("OpenRouter returned no completion choices")
+            return choices[0].get("message", {}).get("content", "")
+
+        # -------------------------------------------------------------
+        # 5. CUSTOM OPENAI-COMPATIBLE ENDPOINT
+        # -------------------------------------------------------------
+        elif prov == "custom":
+            endpoint = (base_url or ai_cfg.get("base_url") or "http://localhost:8000/v1").rstrip("/")
+            if not endpoint.endswith("/chat/completions"):
+                endpoint = f"{endpoint}/chat/completions"
+
+            mod = model or ai_cfg.get("model") or "default"
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
+            payload = {
+                "model": mod,
+                "messages": messages,
+                "response_format": {"type": "json_object"},
+                "temperature": temp
+            }
+
+            headers = {"Content-Type": "application/json", "User-Agent": "OMV-MusicManager"}
+            if key:
+                headers["Authorization"] = f"Bearer {key}"
+
+            req = urllib.request.Request(
+                endpoint,
+                data=json.dumps(payload).encode("utf-8"),
+                headers=headers
+            )
+
+            def _fetch_custom():
+                try:
+                    with urllib.request.urlopen(req, timeout=timeout) as response:
+                        return response.read().decode("utf-8")
+                except urllib.error.HTTPError as he:
+                    err_txt = he.read().decode("utf-8", errors="replace")
+                    raise ValueError(f"Custom AI Endpoint Error ({he.code}): {err_txt}")
+
+            raw_body = await loop.run_in_executor(None, _fetch_custom)
+            resp_json = json.loads(raw_body)
+            choices = resp_json.get("choices", [])
+            if not choices:
+                raise ValueError("Custom endpoint returned no choices")
+            return choices[0].get("message", {}).get("content", "")
+
+        # -------------------------------------------------------------
+        # 6. LOCAL OLLAMA
+        # -------------------------------------------------------------
+        elif prov == "ollama":
+            host = normalize_ollama_host(base_url or ai_cfg.get("ollama_host") or self.ollama_host)
+            mod = model or ai_cfg.get("ollama_model") or self.ollama_default_model or "qwen3.5:9b"
+
+            url = f"{host}/api/chat"
+            payload = {
+                "model": mod,
+                "messages": [
+                    {"role": "system", "content": system_prompt} if system_prompt else None,
+                    {"role": "user", "content": prompt}
+                ],
+                "format": "json",
+                "stream": False,
+                "options": {"temperature": temp}
+            }
+            payload["messages"] = [m for m in payload["messages"] if m]
+
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json", "User-Agent": "OMV-MusicManager"}
+            )
+
+            def _fetch_ollama():
+                try:
+                    with urllib.request.urlopen(req, timeout=timeout) as response:
+                        return response.read().decode("utf-8")
+                except urllib.error.HTTPError as he:
+                    # If /api/chat is not available, fallback to /api/generate
+                    if he.code == 404:
+                        gen_url = f"{host}/api/generate"
+                        gen_payload = {
+                            "model": mod,
+                            "prompt": f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n",
+                            "stream": False,
+                            "format": "json"
+                        }
+                        gen_req = urllib.request.Request(
+                            gen_url,
+                            data=json.dumps(gen_payload).encode("utf-8"),
+                            headers={"Content-Type": "application/json", "User-Agent": "OMV-MusicManager"}
+                        )
+                        with urllib.request.urlopen(gen_req, timeout=timeout) as gr:
+                            return gr.read().decode("utf-8")
+                    err_txt = he.read().decode("utf-8", errors="replace")
+                    raise ValueError(f"Ollama Error ({he.code}): {err_txt}")
+
+            raw_body = await loop.run_in_executor(None, _fetch_ollama)
+            resp_json = json.loads(raw_body)
+            if "message" in resp_json and "content" in resp_json["message"]:
+                return resp_json["message"]["content"]
+            if "response" in resp_json:
+                return resp_json["response"]
+            raise ValueError("Ollama response missing message/content field")
+
+        else:
+            raise ValueError(f"Unknown AI provider: {provider}")
+
+    async def test_ai_connection(self, config_to_test: Dict[str, Any]) -> Dict[str, Any]:
+        """Test API connectivity to any chosen AI provider."""
+        provider = (config_to_test.get("provider") or "gemini").lower().strip()
+        api_key = config_to_test.get("api_key")
+        if not api_key or api_key.startswith("••••"):
+            api_key = self.ai_config.get("api_key", "")
+        model = config_to_test.get("model")
+        base_url = config_to_test.get("base_url")
+        ollama_host = config_to_test.get("ollama_host")
+
+        test_system = "You are an AI DJ curator assistant. Output ONLY valid JSON adhering to: {\"status\": \"ok\", \"message\": \"...\"}"
+        test_prompt = "Say hello in 5 words and confirm you are ready to curate music playlists in JSON format: {\"status\": \"ok\", \"message\": \"Ready to DJ!\"}"
+
+        try:
+            raw_text = await self.call_ai_provider(
+                provider=provider,
+                prompt=test_prompt,
+                system_prompt=test_system,
+                model=model,
+                api_key=api_key,
+                base_url=base_url or ollama_host,
+                temperature=0.3,
+                timeout=15.0
+            )
+            parsed = self.clean_ai_json_response(raw_text)
+            msg = parsed.get("message") or f"Successfully connected to {provider.upper()} ({model or 'default'})!"
+            return {
+                "success": True,
+                "provider": provider,
+                "model": model,
+                "message": msg
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "provider": provider,
+                "error": str(e)
+            }
 
     def _ensure_packages_patched(self):
         """Ensure spotapi, SpotipyFree, and spotdl are patched with timeout and query resilience."""
@@ -5855,96 +6342,170 @@ paths:
                             break
 
             # -------------------------------------------------------------
-            # MODE 5: AI CURATOR (OLLAMA)
+            # MODE 5: AI EXPERT DJ & VIBE PROMPT (MULTI-PROVIDER)
             # -------------------------------------------------------------
             elif mode == "ai":
-                ai_prompt = params.get("prompt", "High energy road trip mix with driving rhythms and anthems")
-                ai_model = params.get("model") or self.ollama_default_model
+                ai_prompt = (params.get("prompt") or "High energy road trip mix with driving rhythms and anthems").strip()
+                if not ai_prompt:
+                    ai_prompt = "High energy road trip mix with driving rhythms and anthems"
 
-                # Get sample artists from library
-                c.execute("SELECT DISTINCT artist FROM items WHERE artist != '' ORDER BY RANDOM() LIMIT 40")
-                sample_artists = [r[0] for r in c.fetchall()]
+                ai_cfg = self._load_ai_config()
+                provider = (params.get("ai_provider") or ai_cfg.get("provider") or "gemini").lower().strip()
+                api_key = params.get("ai_api_key") or ai_cfg.get("api_key") or ""
+                model = params.get("ai_model") or params.get("model") or ai_cfg.get("model")
+                base_url = params.get("ai_base_url") or ai_cfg.get("base_url") or ai_cfg.get("ollama_host")
+                curator_style = params.get("curator_style") or ai_cfg.get("curator_style") or "deep_cuts"
+
+                # Fetch diverse sample artists & genres from actual library to ground the AI DJ
+                c.execute("SELECT DISTINCT artist FROM items WHERE artist != '' AND artist NOT LIKE '%Various Artists%' ORDER BY RANDOM() LIMIT 45")
+                sample_artists = [r[0] for r in c.fetchall() if r[0]]
+
+                c.execute("SELECT DISTINCT genre FROM items WHERE genre != '' AND genre NOT IN ('Unclassified', 'Other', 'Music') ORDER BY RANDOM() LIMIT 20")
+                sample_genres = [r[0] for r in c.fetchall() if r[0]]
+
+                style_instructions = {
+                    "hits": "Focus heavily on legendary signature anthems, crowd favorites, and genre-defining masterpieces.",
+                    "deep_cuts": "Balance iconic tracks with revered album cuts, crate-digger classics, and underground gems.",
+                    "eclectic": "Curate an adventurous, genre-bending journey with unexpected sonic connections and surprising mood shifts."
+                }
+                curator_guidance = style_instructions.get(curator_style, style_instructions["deep_cuts"])
+                needed_tracks = max(target_tracks, 25)
 
                 system_prompt = (
-                    "You are an expert AI Music DJ. Create an awesome, cohesive playlist tracklist. "
-                    f"User Theme / Direction: '{ai_prompt}'.\n"
-                    f"Prioritize artists and songs that fit this vibe, especially drawing inspiration from this library: {', '.join(sample_artists[:25])}.\n"
-                    "Output MUST be ONLY valid JSON adhering to this schema:\n"
-                    '{"playlist_name": "Playlist Title", "tracks": [{"artist": "Artist Name", "title": "Track Title"}]}'
+                    "You are 'The Curator' - a legendary master DJ, radio archivist, and crate-digger known for crafting unforgettable, seamless sonic journeys with impeccable taste.\n"
+                    f"Listener Theme / Vibe Request: '{ai_prompt}'.\n"
+                    f"Curator Style: {curator_guidance}\n"
+                    f"Listener's Library context includes artists such as: {', '.join(sample_artists[:35])}\n"
+                    f"and genres such as: {', '.join(sample_genres[:15])}.\n\n"
+                    "RULES:\n"
+                    f"1. Curate {needed_tracks} tracks that build an exceptional, cohesive mood and energy arc for this vibe.\n"
+                    "2. Give special preference to artists from the listener's library when they fit the vibe, while also including defining songs of this aesthetic.\n"
+                    "3. Ensure smooth DJ transitions between tracks with an intentional sonic progression.\n"
+                    "4. Output MUST be ONLY valid JSON strictly following this schema:\n"
+                    "{\n"
+                    '  "playlist_name": "Evocative and stylish playlist title",\n'
+                    '  "dj_commentary": "1-2 engaging sentences from the DJ explaining the sonic journey, vibe, and energy flow of this mix.",\n'
+                    '  "tracks": [\n'
+                    '    {"artist": "Artist Name", "title": "Track Title", "vibe_note": "Brief 3-5 word note on the sonic vibe"}\n'
+                    '  ]\n'
+                    "}"
                 )
 
-                payload = {
-                    "model": ai_model,
-                    "prompt": f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\nCurate a 25-song playlist for: {ai_prompt}<|im_end|>\n<|im_start|>assistant\n",
-                    "stream": False
-                }
+                user_prompt = f"Curate a {needed_tracks}-track playlist for the vibe: '{ai_prompt}'"
 
-                data_bytes = json.dumps(payload).encode("utf-8")
-                req = urllib.request.Request(
-                    f"{self.ollama_host}/api/generate",
-                    data=data_bytes,
-                    headers={"Content-Type": "application/json", "User-Agent": "OMV-MusicManager"}
-                )
+                suggested_tracks = []
+                dj_commentary = ""
+                count_ai_track = 0
+                count_ai_artist = 0
+                count_vibe_fill = 0
+                ai_data = {}
 
                 try:
-                    loop = asyncio.get_event_loop()
-                    resp_data = await loop.run_in_executor(None, lambda: urllib.request.urlopen(req, timeout=120).read().decode("utf-8"))
-                    parsed_resp = json.loads(resp_data)
-                    raw_text = parsed_resp.get("response", "")
-                    clean_json = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL).strip()
-                    code_block = re.search(r'```(?:json)?\s*(\{.*\}|\[.*\])\s*```', clean_json, re.DOTALL)
-                    if code_block:
-                        clean_json = code_block.group(1).strip()
-                    else:
-                        brace_match = re.search(r'(\{.*\})', clean_json, re.DOTALL)
-                        if brace_match:
-                            clean_json = brace_match.group(1).strip()
-
-                    ai_data = json.loads(clean_json)
+                    raw_resp = await self.call_ai_provider(
+                        provider=provider,
+                        prompt=user_prompt,
+                        system_prompt=system_prompt,
+                        model=model,
+                        api_key=api_key,
+                        base_url=base_url,
+                        temperature=float(ai_cfg.get("temperature", 0.7)),
+                        timeout=75.0
+                    )
+                    ai_data = self.clean_ai_json_response(raw_resp)
                     suggested_tracks = ai_data.get("tracks", [])
-
-                    # Match suggestions to SQLite library
-                    cur_dur = 0
-                    for st in suggested_tracks:
-                        art = st.get("artist", "").strip()
-                        tit = st.get("title", "").strip()
-                        if not art:
-                            continue
-
-                        # Exact or close title match
-                        norm_art = normalize_search_text(art)
-                        norm_tit = normalize_search_text(tit)
-                        c.execute("SELECT id, title, artist, album, genre, length, path, year FROM items WHERE (mm_norm(artist) LIKE ? OR mm_norm(albumartist) LIKE ?) AND mm_norm(title) LIKE ? LIMIT 1", (f"%{norm_art}%", f"%{norm_art}%", f"%{norm_tit}%"))
-                        row = c.fetchone()
-                        if not row:
-                            # Fallback to any song by this artist in library
-                            c.execute("SELECT id, title, artist, album, genre, length, path, year FROM items WHERE (mm_norm(artist) LIKE ? OR mm_norm(albumartist) LIKE ?) ORDER BY RANDOM() LIMIT 1", (f"%{norm_art}%", f"%{norm_art}%"))
-                            row = c.fetchone()
-
-
-                        if row and row[0] not in seen_ids:
-                            item = _format_track_row(row)
-                            seen_ids.add(item["id"])
-                            selected_tracks.append(item)
-                            cur_dur += item["length"]
-
-                            if limit_by == "songs" and len(selected_tracks) >= target_tracks:
-                                break
-                            if limit_by == "time" and cur_dur >= target_duration_sec - 45:
-                                break
-
+                    dj_commentary = ai_data.get("dj_commentary", "")
                 except Exception as e:
-                    logger.warning(f"AI playlist generation failed, falling back to smart shuffle: {e}")
+                    logger.error(f"AI DJ generation error ({provider}): {e}", exc_info=True)
+                    # If AI call failed, check if we need to propagate error to user
+                    if not selected_tracks:
+                        return {
+                            "success": False,
+                            "error": f"AI DJ error ({provider.capitalize()}): {str(e)}"
+                        }
 
-                # If AI returned fewer matches than target, fill in with library tracks
+                # Match suggestions against SQLite library
+                cur_dur = 0
+                for st in suggested_tracks:
+                    art = (st.get("artist") or "").strip()
+                    tit = (st.get("title") or "").strip()
+                    vibe_note = (st.get("vibe_note") or "").strip()
+                    if not art and not tit:
+                        continue
+
+                    norm_art = normalize_search_text(art)
+                    norm_tit = normalize_search_text(tit)
+
+                    row = None
+                    # Tier 1: Exact or close match for Artist + Title
+                    if norm_art and norm_tit:
+                        c.execute(
+                            "SELECT id, title, artist, album, genre, length, path, year FROM items WHERE (mm_norm(artist) LIKE ? OR mm_norm(albumartist) LIKE ?) AND mm_norm(title) LIKE ? LIMIT 1",
+                            (f"%{norm_art}%", f"%{norm_art}%", f"%{norm_tit}%")
+                        )
+                        row = c.fetchone()
+
+                    # Tier 1b: Match by song title if distinct
+                    if not row and norm_tit and len(norm_tit) > 3:
+                        c.execute(
+                            "SELECT id, title, artist, album, genre, length, path, year FROM items WHERE mm_norm(title) = ? LIMIT 1",
+                            (norm_tit,)
+                        )
+                        row = c.fetchone()
+
+                    match_type = "ai_track"
+
+                    # Tier 2: Match by artist in library (pull another song by this artist)
+                    if not row and norm_art:
+                        c.execute(
+                            "SELECT id, title, artist, album, genre, length, path, year FROM items WHERE (mm_norm(artist) LIKE ? OR mm_norm(albumartist) LIKE ?) ORDER BY RANDOM() LIMIT 1",
+                            (f"%{norm_art}%", f"%{norm_art}%")
+                        )
+                        row = c.fetchone()
+                        if row:
+                            match_type = "ai_artist"
+
+                    if row and row[0] not in seen_ids:
+                        item = _format_track_row(row)
+                        item["match_type"] = match_type
+                        if vibe_note:
+                            item["vibe_note"] = vibe_note
+                        if match_type == "ai_artist":
+                            item["ai_requested_title"] = tit
+                            count_ai_artist += 1
+                        else:
+                            count_ai_track += 1
+
+                        seen_ids.add(item["id"])
+                        selected_tracks.append(item)
+                        cur_dur += item["length"]
+
+                        if limit_by == "songs" and len(selected_tracks) >= target_tracks:
+                            break
+                        if limit_by == "time" and cur_dur >= target_duration_sec - 45:
+                            break
+
+                # Tier 3: Vibe Fill if library didn't have enough matches to meet target
                 if (limit_by == "songs" and len(selected_tracks) < target_tracks) or (limit_by == "time" and cur_dur < target_duration_sec - 60):
-                    c.execute("SELECT id, title, artist, album, genre, length, path, year FROM items WHERE length > 30 ORDER BY RANDOM() LIMIT 50")
-                    for row in c.fetchall():
+                    vibe_genres = [t.get("genre") for t in selected_tracks if t.get("genre") and t.get("genre") not in ["Unclassified", "Other", "Music"]]
+                    vibe_candidates = []
+                    if vibe_genres:
+                        placeholders = ",".join(["?"] * min(len(vibe_genres), 6))
+                        c.execute(f"SELECT id, title, artist, album, genre, length, path, year FROM items WHERE length > 30 AND genre IN ({placeholders}) ORDER BY RANDOM() LIMIT 100", vibe_genres[:6])
+                        vibe_candidates = c.fetchall()
+
+                    if len(vibe_candidates) < 20:
+                        c.execute("SELECT id, title, artist, album, genre, length, path, year FROM items WHERE length > 30 ORDER BY RANDOM() LIMIT 60")
+                        vibe_candidates.extend(c.fetchall())
+
+                    for row in vibe_candidates:
                         if row[0] not in seen_ids:
                             item = _format_track_row(row)
+                            item["match_type"] = "vibe_fill"
                             seen_ids.add(item["id"])
                             selected_tracks.append(item)
                             cur_dur += item["length"]
+                            count_vibe_fill += 1
+
                         if limit_by == "songs" and len(selected_tracks) >= target_tracks:
                             break
                         if limit_by == "time" and cur_dur >= target_duration_sec - 45:
@@ -6186,17 +6747,31 @@ paths:
         else:
             final_name = self.generate_playlist_name(mode, params, selected_tracks, ai_suggested_name=suggested_ai_title)
 
+        dj_notes = dj_commentary if (mode == "ai" and "dj_commentary" in locals() and dj_commentary) else None
+        active_ai_provider = provider if (mode == "ai" and "provider" in locals()) else None
+        active_ai_model = model if (mode == "ai" and "model" in locals()) else None
+
         return {
             "success": True,
             "mode": mode,
             "playlist_name": final_name,
             "tracks": selected_tracks,
+            "dj_commentary": dj_notes,
+            "ai_provider": active_ai_provider,
+            "ai_model": active_ai_model,
             "summary": {
                 "track_count": len(selected_tracks),
                 "total_duration_sec": total_sec,
                 "total_duration_str": duration_formatted,
                 "total_size_mb": round(total_bytes / (1024 * 1024), 1),
-                "genres_breakdown": genre_dist
+                "genres_breakdown": genre_dist,
+                "dj_commentary": dj_notes,
+                "ai_provider": active_ai_provider,
+                "ai_model": active_ai_model,
+                "ai_requested_count": len(suggested_tracks) if (mode == "ai" and "suggested_tracks" in locals()) else 0,
+                "ai_matched_songs": count_ai_track if (mode == "ai" and "count_ai_track" in locals()) else 0,
+                "ai_matched_artists": count_ai_artist if (mode == "ai" and "count_ai_artist" in locals()) else 0,
+                "vibe_fill_count": count_vibe_fill if (mode == "ai" and "count_vibe_fill" in locals()) else 0
             }
         }
 

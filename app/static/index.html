@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Music Manager Web</title>
-    <link rel="stylesheet" href="/static/style.css?v=1.6.2">
+    <link rel="stylesheet" href="/static/style.css?v=1.7.0">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
 <body>
@@ -318,8 +318,8 @@
                             <button type="button" class="btn-system" data-system="random">
                                 <i class="fa-solid fa-shuffle"></i> Smart Shuffle (Downloaded)
                             </button>
-                            <button type="button" class="btn-system" data-system="ai" style="display: none;">
-                                <i class="fa-solid fa-wand-magic-sparkles"></i> AI Curator (Ollama)
+                            <button type="button" class="btn-system" data-system="ai">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> AI DJ & Vibe Prompt
                             </button>
                             <button type="button" class="btn-system" data-system="decade">
                                 <i class="fa-solid fa-calendar-days"></i> Decade Journey
@@ -380,24 +380,116 @@
                             </div>
                         </div>
 
-                        <!-- System Panel 3: AI Curator (Ollama) -->
+                        <!-- System Panel 3: AI DJ & Vibe Prompt -->
                         <div class="system-panel mt-3" id="panel-ai" style="display: none;">
                             <div class="panel-desc text-muted text-xs mb-2">
-                                Leverages your connected Ollama server & model to design a cohesive thematic playlist, matching selections back against your actual library files.
+                                Describe any vibe, mood, road trip, or scene in plain English. The Expert AI DJ translates your prompt into a curated tracklist, matching songs and artists directly from your library vault.
                             </div>
+
+                            <!-- Vibe Inspiration Chips -->
                             <div class="ai-prompt-presets mt-2">
-                                <span class="text-muted text-xs">Quick Vibe Prompts:</span>
+                                <span class="text-muted text-xs"><i class="fa-solid fa-lightbulb"></i> Instant Vibe Starters:</span>
                                 <div class="prompt-chips mt-1">
-                                    <button type="button" class="btn-prompt-chip" data-prompt="Late night highway drive with deep bass and atmospheric guitars">Night Drive</button>
-                                    <button type="button" class="btn-prompt-chip" data-prompt="High-energy rock workout mix with driving tempos and epic choruses">Workout Anthems</button>
-                                    <button type="button" class="btn-prompt-chip" data-prompt="Sunday morning acoustic coffee shop vibe with blues and folk">Acoustic Morning</button>
-                                    <button type="button" class="btn-prompt-chip" data-prompt="Psychedelic electronic journey with hypnotic basslines and progressive build-ups">Psychedelic Bass</button>
-                                    <button type="button" class="btn-prompt-chip" data-prompt="Storytelling narrative indie rock with witty lyrics and upbeat rhythm">Narrative Indie</button>
+                                    <button type="button" class="btn-prompt-chip" data-prompt="80's car radio with cruising synths, classic power pop, and neon highway melodies">80's Car Radio</button>
+                                    <button type="button" class="btn-prompt-chip" data-prompt="Dark synthwave and cinematic electro with brooding basslines and main character energy">Dark Synth Main Character</button>
+                                    <button type="button" class="btn-prompt-chip" data-prompt="Late night highway drive with deep bass, atmospheric indie rock, and melodic guitar solos">Night Drive</button>
+                                    <button type="button" class="btn-prompt-chip" data-prompt="High-energy rock and driving electronic anthems with fast bpm and explosive choruses">Workout Anthems</button>
+                                    <button type="button" class="btn-prompt-chip" data-prompt="Warm Sunday morning acoustic coffee shop vibe with blues, folk, and mellow soul">Sunday Morning Coffee</button>
+                                    <button type="button" class="btn-prompt-chip" data-prompt="Raw 90s grunge, fuzzy alternative guitars, and angsty punchy rock">90's Grunge & Alt</button>
+                                    <button type="button" class="btn-prompt-chip" data-prompt="Futuristic cyberpunk club music with heavy distorted beats, industrial bass, and dark synth hooks">Cyberpunk Neon</button>
+                                    <button type="button" class="btn-prompt-chip" data-prompt="Psychedelic space rock, progressive voyages, and hypnotic ambient textures">Psychedelic Space</button>
                                 </div>
                             </div>
-                            <div class="input-group mt-2">
-                                <i class="fa-solid fa-wand-sparkles input-icon"></i>
-                                <input type="text" id="playlist-ai-prompt" placeholder="Describe the vibe, occasion, or theme (e.g. 'Stoner rock with desert grooves for a road trip')">
+
+                            <!-- Free-form text prompt -->
+                            <div class="input-group mt-3">
+                                <i class="fa-solid fa-wand-magic-sparkles input-icon"></i>
+                                <input type="text" id="playlist-ai-prompt" placeholder="e.g. 80's car radio, dark synth main character energy, rainy jazz cafe, cyberpunk club...">
+                            </div>
+
+                            <!-- Curator Style selection -->
+                            <div class="curator-style-row mt-3">
+                                <span class="blend-label text-xs">Curator Style:</span>
+                                <label class="radio-label">
+                                    <input type="radio" name="ai-curator-style" value="deep_cuts" checked>
+                                    <strong>Deep Vault Cuts</strong> (Iconic anthems + hidden gems)
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="ai-curator-style" value="hits">
+                                    <strong>Hit Anthems</strong> (Crowd-pleasers & defining classics)
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="ai-curator-style" value="eclectic">
+                                    <strong>Eclectic Blend</strong> (Surprising cross-genre sonic journey)
+                                </label>
+                            </div>
+
+                            <!-- AI Provider Configuration Drawer -->
+                            <div class="ai-provider-card mt-3">
+                                <div class="ai-provider-header flex-between" id="ai-provider-header">
+                                    <div class="ai-provider-info">
+                                        <i class="fa-solid fa-robot text-primary"></i>
+                                        <span class="text-sm font-semibold">AI Service Engine:</span>
+                                        <span class="badge" id="ai-active-provider-badge">Loading...</span>
+                                    </div>
+                                    <button type="button" class="btn btn-secondary btn-sm" id="btn-toggle-ai-settings" title="Configure AI Service (Gemini, Groq, OpenAI, Ollama, etc.)">
+                                        <i class="fa-solid fa-sliders"></i> <span id="ai-settings-btn-text">Settings</span>
+                                    </button>
+                                </div>
+
+                                <div class="ai-settings-drawer mt-3" id="ai-settings-drawer" style="display: none;">
+                                    <div class="text-muted text-xs mb-2">
+                                        Plug into free online AI services (Google Gemini, Groq) or your own local Ollama / OpenAI keys.
+                                    </div>
+                                    <div class="ai-settings-grid">
+                                        <div class="form-group">
+                                            <label class="text-xs" for="ai-provider-select">Provider / Service</label>
+                                            <select id="ai-provider-select" class="form-control form-control-sm">
+                                                <option value="gemini">Google Gemini (Free tier at Google AI Studio)</option>
+                                                <option value="groq">Groq (Free ultra-fast Llama 3)</option>
+                                                <option value="openai">OpenAI (GPT-4o Mini / GPT-4o)</option>
+                                                <option value="openrouter">OpenRouter (Free & Paid Models)</option>
+                                                <option value="ollama">Local Ollama</option>
+                                                <option value="custom">Custom OpenAI-Compatible</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="form-group" id="ai-key-group">
+                                            <label class="text-xs flex-between" for="ai-api-key-input">
+                                                <span>API Key</span>
+                                                <a href="https://aistudio.google.com/app/apikey" target="_blank" id="ai-key-help-link" class="text-xs text-primary" style="text-decoration: underline;">Get free key</a>
+                                            </label>
+                                            <div class="input-with-icon-right">
+                                                <input type="password" id="ai-api-key-input" class="form-control form-control-sm" placeholder="Paste API key here...">
+                                                <button type="button" class="btn-icon-inside" id="btn-toggle-ai-key-visibility" title="Show / Hide Key">
+                                                    <i class="fa-regular fa-eye"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label class="text-xs" for="ai-model-input">Model Name</label>
+                                            <input type="text" id="ai-model-input" class="form-control form-control-sm" placeholder="gemini-2.0-flash">
+                                        </div>
+
+                                        <div class="form-group" id="ai-baseurl-group" style="display: none;">
+                                            <label class="text-xs" for="ai-baseurl-input">Base URL / Host</label>
+                                            <input type="text" id="ai-baseurl-input" class="form-control form-control-sm" placeholder="http://192.168.178.31:11434">
+                                        </div>
+                                    </div>
+
+                                    <div class="ai-settings-actions mt-3 flex-between">
+                                        <div class="ai-test-status text-xs" id="ai-test-status"></div>
+                                        <div class="btn-group-sm">
+                                            <button type="button" class="btn btn-secondary btn-sm" id="btn-test-ai-config">
+                                                <i class="fa-solid fa-plug-circle-bolt"></i> Test Connection
+                                            </button>
+                                            <button type="button" class="btn btn-primary btn-sm" id="btn-save-ai-config">
+                                                <i class="fa-solid fa-floppy-disk"></i> Save Settings
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -671,11 +763,26 @@
                             </div>
                             <div class="preview-actions">
                                 <button type="button" class="btn btn-secondary btn-sm" id="btn-playlist-shuffle" title="Randomize track order">
-                                    <i class="fa-solid fa-shuffle"></i> Shuffle
+                                <i class="fa-solid fa-shuffle"></i> Shuffle
                                 </button>
                                 <button type="button" class="btn btn-secondary btn-sm" id="btn-playlist-clear" title="Clear tracklist">
                                     <i class="fa-solid fa-trash-can"></i> Clear
                                 </button>
+                            </div>
+                        </div>
+
+                        <!-- AI DJ Liner Notes Card -->
+                        <div class="ai-dj-liner-card mt-3" id="ai-dj-liner-card" style="display: none;">
+                            <div class="ai-dj-avatar">
+                                <i class="fa-solid fa-headphones"></i>
+                            </div>
+                            <div class="ai-dj-content">
+                                <div class="ai-dj-topline flex-between">
+                                    <span class="ai-dj-label"><i class="fa-solid fa-wand-magic-sparkles"></i> THE CURATOR'S LINER NOTES</span>
+                                    <span class="ai-dj-badge" id="ai-dj-provider-pill">Gemini</span>
+                                </div>
+                                <div class="ai-dj-commentary mt-1" id="ai-dj-commentary"></div>
+                                <div class="ai-dj-curation-stats mt-2" id="ai-dj-curation-stats"></div>
                             </div>
                         </div>
 
@@ -1183,12 +1290,12 @@
 
     <!-- Subtle Version Watermark (Bottom-Left) -->
     <div class="version-watermark" id="app-version-watermark" title="Music Manager (Click to view version and update details)">
-        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.6.2
+        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.7.0
     </div>
 
     <!-- Notification Toast -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/app.js?v=1.6.2"></script>
+    <script src="/static/app.js?v=1.7.0"></script>
 </body>
 </html>

@@ -163,6 +163,11 @@ class PlaylistGenerateRequest(BaseModel):
     smart_shuffle: Optional[bool] = True
     prompt: Optional[str] = ""
     model: Optional[str] = None
+    ai_provider: Optional[str] = None
+    ai_api_key: Optional[str] = None
+    ai_model: Optional[str] = None
+    ai_base_url: Optional[str] = None
+    curator_style: Optional[str] = "deep_cuts"
     overlap_type: Optional[str] = "genre_genre"
     target_a: Optional[str] = ""
     target_b: Optional[str] = ""
@@ -178,6 +183,24 @@ class PlaylistGenerateRequest(BaseModel):
     seed_bpm: Optional[float] = None
     seed_title: Optional[str] = None
     seed_artist: Optional[str] = None
+
+class AiConfigRequest(BaseModel):
+    provider: Optional[str] = "gemini"
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+    curator_style: Optional[str] = "deep_cuts"
+    temperature: Optional[float] = 0.7
+    ollama_host: Optional[str] = None
+    ollama_model: Optional[str] = None
+    clear_api_key: Optional[bool] = False
+
+class AiTestRequest(BaseModel):
+    provider: str = "gemini"
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+    ollama_host: Optional[str] = None
 
 class PlaylistSuggestTitleRequest(BaseModel):
     mode: str = "random"
@@ -537,6 +560,25 @@ async def get_track_bpm_endpoint(track_id: int):
 @app.post("/api/playlist/venn-stats")
 async def get_venn_stats_endpoint(req: VennStatsRequest):
     return service.get_venn_stats(req.dict())
+
+# =========================================================================
+# AI CONFIGURATION & TESTING ENDPOINTS
+# =========================================================================
+
+@app.get("/api/ai/config")
+async def get_ai_config_endpoint():
+    """Retrieve remembered AI configuration (API key is masked)."""
+    return service.get_ai_config()
+
+@app.post("/api/ai/config")
+async def save_ai_config_endpoint(req: AiConfigRequest):
+    """Save updated AI configuration (Gemini, Groq, OpenAI, OpenRouter, Custom, Ollama)."""
+    return service.save_ai_config(req.dict())
+
+@app.post("/api/ai/test")
+async def test_ai_connection_endpoint(req: AiTestRequest):
+    """Test live connectivity and prompt response for an AI provider."""
+    return await service.test_ai_connection(req.dict())
 
 @app.post("/api/playlist/generate")
 async def generate_playlist_endpoint(req: PlaylistGenerateRequest):
