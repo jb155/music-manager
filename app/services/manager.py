@@ -445,14 +445,41 @@ paths:
     def _get_default_ai_config(self) -> Dict[str, Any]:
         """Default AI DJ settings with fallback to environment variables."""
         return {
-            "provider": os.environ.get("AI_PROVIDER", "gemini"),
-            "api_key": os.environ.get("GEMINI_API_KEY", "") or os.environ.get("AI_API_KEY", ""),
-            "model": os.environ.get("AI_MODEL", "gemini-2.0-flash"),
+            "provider": os.environ.get("AI_PROVIDER", "groq"),
+            "api_key": os.environ.get("GROQ_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "") or os.environ.get("AI_API_KEY", ""),
+            "model": os.environ.get("AI_MODEL", "openai/gpt-oss-120b"),
             "base_url": os.environ.get("AI_BASE_URL", ""),
             "curator_style": "deep_cuts",
             "temperature": 0.7,
             "ollama_host": getattr(self, "ollama_host", "http://192.168.178.31:11434"),
-            "ollama_model": getattr(self, "ollama_default_model", "qwen3.5:9b")
+            "ollama_model": getattr(self, "ollama_default_model", "qwen3.5:9b"),
+            "provider_configs": {
+                "groq": {
+                    "api_key": os.environ.get("GROQ_API_KEY", ""),
+                    "model": "openai/gpt-oss-120b"
+                },
+                "gemini": {
+                    "api_key": os.environ.get("GEMINI_API_KEY", ""),
+                    "model": "gemini-2.0-flash"
+                },
+                "openai": {
+                    "api_key": os.environ.get("OPENAI_API_KEY", ""),
+                    "model": "gpt-4o-mini"
+                },
+                "openrouter": {
+                    "api_key": os.environ.get("OPENROUTER_API_KEY", ""),
+                    "model": "google/gemini-2.0-flash-exp:free"
+                },
+                "ollama": {
+                    "base_url": getattr(self, "ollama_host", "http://192.168.178.31:11434"),
+                    "model": "qwen3.5:9b"
+                },
+                "custom": {
+                    "api_key": "",
+                    "base_url": "http://localhost:8000/v1",
+                    "model": "default"
+                }
+            }
         }
 
     def _load_ai_config(self) -> Dict[str, Any]:
@@ -468,31 +495,96 @@ paths:
                                 if k == "api_key" and str(v).strip().lower() == "none":
                                     continue
                                 cfg[k] = v
+
+                        # Ensure provider_configs exists
+                        if "provider_configs" not in cfg or not isinstance(cfg["provider_configs"], dict):
+                            cfg["provider_configs"] = self._get_default_ai_config()["provider_configs"]
+
+                        # Migrate legacy top-level config into active provider's slot
+                        active_p = (cfg.get("provider") or "groq").lower().strip()
+                        if active_p not in cfg["provider_configs"]:
+                            cfg["provider_configs"][active_p] = {}
+
+                        if cfg.get("api_key") and not cfg["provider_configs"][active_p].get("api_key"):
+                            cfg["provider_configs"][active_p]["api_key"] = cfg["api_key"]
+                        if cfg.get("model") and not cfg["provider_configs"][active_p].get("model"):
+                            cfg["provider_configs"][active_p]["model"] = cfg["model"]
+                        if cfg.get("base_url") and not cfg["provider_configs"][active_p].get("base_url"):
+                            cfg["provider_configs"][active_p]["base_url"] = cfg["base_url"]
+
+                        # Sanitize deprecated / mismatched models on Groq
+                        groq_cfg = cfg["provider_configs"].get("groq", {})
+                        groq_m = groq_cfg.get("model", "")
+                        if not groq_m or groq_m in ("llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama-3.1-8b-instant", "llama3-8b-8192", "llama3-70b-8192", "gpt-4", "gpt-3.5-turbo", "default"):
+                            groq_cfg["model"] = "openai/gpt-oss-120b"
+                            if active_p == "groq":
+                                cfg["model"] = "openai/gpt-oss-120b"
             except Exception as e:
                 logger.warning(f"Could not load ai_config.json: {e}")
         return cfg
 
     def save_ai_config(self, new_cfg: Dict[str, Any]) -> Dict[str, Any]:
-        """Save updated AI configuration to disk."""
+        """Save updated AI configuration to disk with per-provider persistence."""
         if not hasattr(self, "ai_config") or not self.ai_config:
             self.ai_config = self._load_ai_config()
 
-        # Handle API key updating carefully (prevent accidental overwrite with masked string or None)
+        target_provider = (new_cfg.get("provider") or self.ai_config.get("provider") or "groq").lower().strip()
+        self.ai_config["provider"] = target_provider
+
+        if "provider_configs" not in self.ai_config or not isinstance(self.ai_config["provider_configs"], dict):
+            self.ai_config["provider_configs"] = self._get_default_ai_config()["provider_configs"]
+
+        if target_provider not in self.ai_config["provider_configs"]:
+            self.ai_config["provider_configs"][target_provider] = {}
+
+        p_cfg = self.ai_config["provider_configs"][target_provider]
+
+        # Handle API key
         if new_cfg.get("api_key") is not None:
             key_val = str(new_cfg["api_key"]).strip()
-            if key_val and key_val.lower() != "none" and not key_val.startswith("••••"):
+            if key_val and key_val.lower() != "none" and not key_val.startswith("••••") and not key_val.startswith("Saved:"):
+                p_cfg["api_key"] = key_val
                 self.ai_config["api_key"] = key_val
             elif (not key_val or key_val.lower() == "none") and new_cfg.get("clear_api_key"):
+                p_cfg["api_key"] = ""
                 self.ai_config["api_key"] = ""
+        else:
+            # Sync top-level with existing provider key
+            self.ai_config["api_key"] = p_cfg.get("api_key", "")
 
-        # Update other fields
-        for field in ["provider", "model", "base_url", "curator_style", "temperature", "ollama_host", "ollama_model"]:
+        # Handle model
+        if new_cfg.get("model"):
+            m_val = str(new_cfg["model"]).strip()
+            if target_provider == "groq" and m_val in ("llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama-3.1-8b-instant", "llama3-8b-8192", "llama3-70b-8192", "gpt-4"):
+                m_val = "openai/gpt-oss-120b"
+            p_cfg["model"] = m_val
+            self.ai_config["model"] = m_val
+        elif not p_cfg.get("model"):
+            defaults = {
+                "groq": "openai/gpt-oss-120b",
+                "gemini": "gemini-2.0-flash",
+                "openai": "gpt-4o-mini",
+                "openrouter": "google/gemini-2.0-flash-exp:free",
+                "ollama": "qwen3.5:9b",
+                "custom": "default"
+            }
+            p_cfg["model"] = defaults.get(target_provider, "default")
+            self.ai_config["model"] = p_cfg["model"]
+        else:
+            self.ai_config["model"] = p_cfg["model"]
+
+        # Handle base_url
+        if new_cfg.get("base_url"):
+            p_cfg["base_url"] = str(new_cfg["base_url"]).strip()
+            self.ai_config["base_url"] = p_cfg["base_url"]
+            if target_provider == "ollama":
+                self.ai_config["ollama_host"] = p_cfg["base_url"]
+                self.ollama_host = normalize_ollama_host(p_cfg["base_url"])
+
+        # Update other general fields
+        for field in ["curator_style", "temperature"]:
             if field in new_cfg and new_cfg[field] is not None:
                 self.ai_config[field] = new_cfg[field]
-
-        # Sync ollama_host if updated
-        if self.ai_config.get("ollama_host"):
-            self.ollama_host = normalize_ollama_host(self.ai_config["ollama_host"])
 
         try:
             with open(self.ai_config_file, "w", encoding="utf-8") as f:
@@ -508,21 +600,153 @@ paths:
         if not hasattr(self, "ai_config") or not self.ai_config:
             self.ai_config = self._load_ai_config()
         cfg = dict(self.ai_config)
-        api_key = cfg.get("api_key", "")
-        if api_key and str(api_key).strip().lower() == "none":
-            api_key = ""
-            self.ai_config["api_key"] = ""
-            cfg["api_key"] = ""
-        cfg["has_api_key"] = bool(api_key and len(api_key) > 4)
-        if api_key:
-            if len(api_key) > 8:
-                cfg["api_key_masked"] = api_key[:4] + "••••••••" + api_key[-4:]
-            else:
-                cfg["api_key_masked"] = "••••••••"
-        else:
-            cfg["api_key_masked"] = ""
+
+        # Build masked provider_configs
+        raw_p_cfgs = cfg.get("provider_configs", {})
+        masked_p_cfgs = {}
+        for p_name, p_val in raw_p_cfgs.items():
+            if not isinstance(p_val, dict):
+                continue
+            pk = p_val.get("api_key", "")
+            has_k = bool(pk and len(pk) > 4 and str(pk).lower() != "none")
+            masked_k = (pk[:4] + "••••••••" + pk[-4:]) if len(pk) > 8 else ("••••••••" if has_k else "")
+            masked_p_cfgs[p_name] = {
+                "has_api_key": has_k,
+                "api_key_masked": masked_k,
+                "model": p_val.get("model", ""),
+                "base_url": p_val.get("base_url", "")
+            }
+        cfg["provider_configs"] = masked_p_cfgs
+
+        active_p = (cfg.get("provider") or "groq").lower().strip()
+        active_p_cfg = masked_p_cfgs.get(active_p, {})
+        cfg["has_api_key"] = active_p_cfg.get("has_api_key", False)
+        cfg["api_key_masked"] = active_p_cfg.get("api_key_masked", "")
         cfg["api_key"] = cfg["api_key_masked"]
+        cfg["model"] = active_p_cfg.get("model") or cfg.get("model", "")
         return cfg
+
+    async def get_available_models(
+        self,
+        provider: str = "groq",
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Fetch live models available on provider or return curated recommended models."""
+        prov = (provider or "gemini").lower().strip()
+        ai_cfg = self._load_ai_config()
+
+        # Resolve key
+        key = api_key if (api_key and not api_key.startswith("••••") and not api_key.startswith("Saved:")) else ""
+        if not key:
+            prov_cfg = ai_cfg.get("provider_configs", {}).get(prov, {})
+            key = prov_cfg.get("api_key") or ai_cfg.get("api_key", "")
+            if key and (key.startswith("••••") or key.startswith("Saved:")):
+                key = ""
+
+        curated_defaults = {
+            "groq": [
+                {"id": "openai/gpt-oss-120b", "name": "GPT-OSS 120B (Recommended, Ultra-Fast)"},
+                {"id": "openai/gpt-oss-20b", "name": "GPT-OSS 20B (Lightning Fast)"},
+                {"id": "qwen/qwen3.8-27b", "name": "Qwen 3.8 27B (High Quality)"},
+                {"id": "canopylabs/orpheus-v1-english", "name": "Orpheus v1 English"},
+                {"id": "allam-2-7b", "name": "Allam 2 7B"}
+            ],
+            "gemini": [
+                {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash (Recommended, Free Tier)"},
+                {"id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash (Free Tier)"},
+                {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro"},
+                {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash"}
+            ],
+            "openai": [
+                {"id": "gpt-4o-mini", "name": "GPT-4o Mini (Recommended, Fast & Affordable)"},
+                {"id": "gpt-4o", "name": "GPT-4o (Flagship Model)"},
+                {"id": "o3-mini", "name": "o3-mini (Reasoning)"},
+                {"id": "gpt-3.5-turbo", "name": "GPT-3.5 Turbo"}
+            ],
+            "openrouter": [
+                {"id": "google/gemini-2.0-flash-exp:free", "name": "Gemini 2.0 Flash Exp (Free)"},
+                {"id": "meta-llama/llama-3.3-70b-instruct:free", "name": "Llama 3.3 70B Instruct (Free)"},
+                {"id": "deepseek/deepseek-chat:free", "name": "DeepSeek V3 (Free)"}
+            ],
+            "ollama": [
+                {"id": "qwen3.5:9b", "name": "Qwen 3.5 9B"},
+                {"id": "llama3.2", "name": "Llama 3.2"},
+                {"id": "llama3.1", "name": "Llama 3.1"},
+                {"id": "mistral", "name": "Mistral 7B"}
+            ],
+            "custom": [
+                {"id": "default", "name": "Default Model"}
+            ]
+        }
+
+        loop = asyncio.get_event_loop()
+
+        if prov == "groq" and key:
+            def _fetch_groq_models():
+                url = "https://api.groq.com/openai/v1/models"
+                req = urllib.request.Request(url, headers={"Authorization": f"Bearer {key}", "User-Agent": "OMV-MusicManager"})
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = json.loads(resp.read().decode())
+                    all_ids = [m["id"] for m in data.get("data", [])]
+                    chat_ids = [m for m in all_ids if not any(x in m.lower() for x in ["whisper", "guard", "embed"])]
+                    def sort_k(m_id):
+                        if "120b" in m_id: return 0
+                        if "20b" in m_id: return 1
+                        if "qwen" in m_id: return 2
+                        return 10
+                    chat_ids.sort(key=sort_k)
+                    return [{"id": m, "name": m} for m in chat_ids]
+
+            try:
+                models = await loop.run_in_executor(None, _fetch_groq_models)
+                if models:
+                    return {"success": True, "provider": prov, "models": models, "source": "api"}
+            except Exception as e:
+                logger.warning(f"Could not fetch live Groq models: {e}")
+
+        elif prov == "gemini" and key:
+            def _fetch_gemini_models():
+                url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
+                req = urllib.request.Request(url, headers={"User-Agent": "OMV-MusicManager"})
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = json.loads(resp.read().decode())
+                    raw_models = data.get("models", [])
+                    chat_models = []
+                    for m in raw_models:
+                        methods = m.get("supportedGenerationMethods", [])
+                        if "generateContent" in methods:
+                            m_id = m.get("name", "").replace("models/", "")
+                            if "flash" in m_id or "pro" in m_id:
+                                chat_models.append({"id": m_id, "name": m.get("displayName") or m_id})
+                    return chat_models
+
+            try:
+                models = await loop.run_in_executor(None, _fetch_gemini_models)
+                if models:
+                    return {"success": True, "provider": prov, "models": models, "source": "api"}
+            except Exception as e:
+                logger.warning(f"Could not fetch live Gemini models: {e}")
+
+        elif prov == "ollama":
+            host = base_url or ai_cfg.get("ollama_host") or "http://192.168.178.31:11434"
+            host = normalize_ollama_host(host)
+            def _fetch_ollama_models():
+                url = f"{host}/api/tags"
+                req = urllib.request.Request(url, headers={"User-Agent": "OMV-MusicManager"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = json.loads(resp.read().decode())
+                    models = [{"id": m.get("name"), "name": m.get("name")} for m in data.get("models", []) if m.get("name")]
+                    return models
+
+            try:
+                models = await loop.run_in_executor(None, _fetch_ollama_models)
+                if models:
+                    return {"success": True, "provider": prov, "models": models, "source": "api"}
+            except Exception as e:
+                logger.debug(f"Could not fetch live Ollama models: {e}")
+
+        return {"success": True, "provider": prov, "models": curated_defaults.get(prov, []), "source": "defaults"}
 
     def clean_ai_json_response(self, raw_text: str) -> Dict[str, Any]:
         """Clean markdown wrapping, reasoning tags, and parse JSON from AI models."""
@@ -567,13 +791,14 @@ paths:
         # 1. GOOGLE GEMINI (Free Tier available at aistudio.google.com)
         # -------------------------------------------------------------
         if prov == "gemini":
-            mod = model or ai_cfg.get("model") or "gemini-2.0-flash"
+            mod = model or ai_cfg.get("provider_configs", {}).get("gemini", {}).get("model") or ai_cfg.get("model") or "gemini-2.0-flash"
+            if not mod or mod in ("gpt-4", "gpt-4o", "llama-3.3-70b-versatile", "default"):
+                mod = "gemini-2.0-flash"
             if not key:
-                key = os.environ.get("GEMINI_API_KEY", "")
+                key = ai_cfg.get("provider_configs", {}).get("gemini", {}).get("api_key") or os.environ.get("GEMINI_API_KEY", "")
             if not key:
                 raise ValueError("No Gemini API key configured. Please get a free API key at https://aistudio.google.com and enter it in AI Settings.")
 
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{mod}:generateContent?key={key}"
             payload: Dict[str, Any] = {
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {
@@ -584,13 +809,13 @@ paths:
             if system_prompt:
                 payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
 
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(payload).encode("utf-8"),
-                headers={"Content-Type": "application/json", "User-Agent": "OMV-MusicManager"}
-            )
-
-            def _fetch_gemini():
+            def _fetch_gemini(active_model=mod):
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_model}:generateContent?key={key}"
+                req = urllib.request.Request(
+                    url,
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json", "User-Agent": "OMV-MusicManager"}
+                )
                 try:
                     with urllib.request.urlopen(req, timeout=timeout) as response:
                         return response.read().decode("utf-8")
@@ -601,6 +826,9 @@ paths:
                         msg = err_obj.get("error", {}).get("message", err_txt)
                     except Exception:
                         msg = err_txt
+                    if he.code == 404 and active_model != "gemini-1.5-flash":
+                        logger.warning(f"Gemini model '{active_model}' not found (404). Falling back to 'gemini-1.5-flash'...")
+                        return _fetch_gemini("gemini-1.5-flash")
                     raise ValueError(f"Gemini API Error ({he.code}): {msg}")
 
             raw_body = await loop.run_in_executor(None, _fetch_gemini)
@@ -618,9 +846,11 @@ paths:
         # 2. GROQ (Ultra-fast free tier at console.groq.com)
         # -------------------------------------------------------------
         elif prov == "groq":
-            mod = model or ai_cfg.get("model") or "llama-3.3-70b-versatile"
+            mod = model or ai_cfg.get("provider_configs", {}).get("groq", {}).get("model") or ai_cfg.get("model") or "openai/gpt-oss-120b"
+            if not mod or mod in ("llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama-3.1-8b-instant", "llama3-8b-8192", "llama3-70b-8192", "gpt-4", "gpt-3.5-turbo", "default"):
+                mod = "openai/gpt-oss-120b"
             if not key:
-                key = os.environ.get("GROQ_API_KEY", "")
+                key = ai_cfg.get("provider_configs", {}).get("groq", {}).get("api_key") or os.environ.get("GROQ_API_KEY", "")
             if not key:
                 raise ValueError("No Groq API key configured. Please get a free API key at https://console.groq.com and enter it in AI Settings.")
 
@@ -637,17 +867,17 @@ paths:
                 "temperature": temp
             }
 
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(payload).encode("utf-8"),
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {key}",
-                    "User-Agent": "OMV-MusicManager"
-                }
-            )
-
-            def _fetch_groq():
+            def _fetch_groq(active_model=mod):
+                payload["model"] = active_model
+                req = urllib.request.Request(
+                    url,
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {key}",
+                        "User-Agent": "OMV-MusicManager"
+                    }
+                )
                 try:
                     with urllib.request.urlopen(req, timeout=timeout) as response:
                         return response.read().decode("utf-8")
@@ -658,6 +888,9 @@ paths:
                         msg = err_obj.get("error", {}).get("message", err_txt)
                     except Exception:
                         msg = err_txt
+                    if he.code == 404 and active_model != "openai/gpt-oss-120b":
+                        logger.warning(f"Groq model '{active_model}' not found (404: {msg}). Auto-retrying with 'openai/gpt-oss-120b'...")
+                        return _fetch_groq("openai/gpt-oss-120b")
                     raise ValueError(f"Groq API Error ({he.code}): {msg}")
 
             raw_body = await loop.run_in_executor(None, _fetch_groq)
@@ -884,11 +1117,20 @@ paths:
 
     async def test_ai_connection(self, config_to_test: Dict[str, Any]) -> Dict[str, Any]:
         """Test API connectivity to any chosen AI provider."""
-        provider = (config_to_test.get("provider") or "gemini").lower().strip()
+        provider = (config_to_test.get("provider") or "groq").lower().strip()
+        ai_cfg = self._load_ai_config()
         api_key = config_to_test.get("api_key")
-        if not api_key or api_key.startswith("••••"):
-            api_key = self.ai_config.get("api_key", "")
+        if not api_key or str(api_key).startswith("••••") or str(api_key).startswith("Saved:"):
+            prov_cfg = ai_cfg.get("provider_configs", {}).get(provider, {})
+            api_key = prov_cfg.get("api_key") or ai_cfg.get("api_key", "")
+            if api_key and (str(api_key).startswith("••••") or str(api_key).startswith("Saved:")):
+                api_key = ""
+
         model = config_to_test.get("model")
+        if not model or model == "__custom__" or model == "default":
+            prov_cfg = ai_cfg.get("provider_configs", {}).get(provider, {})
+            model = prov_cfg.get("model") or ai_cfg.get("model")
+
         base_url = config_to_test.get("base_url")
         ollama_host = config_to_test.get("ollama_host")
 

@@ -55,7 +55,7 @@ def _load_app_version() -> str:
                         return str(data["version"]).strip()
             except Exception:
                 pass
-    return "1.7.0"
+    return "1.7.1"
 
 APP_VERSION = _load_app_version()
 
@@ -599,6 +599,11 @@ async def save_ai_config_endpoint(req: AiConfigRequest):
 async def test_ai_connection_endpoint(req: AiTestRequest):
     """Test live connectivity and prompt response for an AI provider."""
     return await service.test_ai_connection(req.dict())
+
+@app.get("/api/ai/models")
+async def get_ai_models_endpoint(provider: str = "groq", api_key: Optional[str] = None, base_url: Optional[str] = None):
+    """Retrieve live detected models or curated defaults for an AI provider."""
+    return await service.get_available_models(provider=provider, api_key=api_key, base_url=base_url)
 
 @app.post("/api/playlist/generate")
 async def generate_playlist_endpoint(req: PlaylistGenerateRequest):

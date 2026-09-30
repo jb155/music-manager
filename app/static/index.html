@@ -468,8 +468,16 @@
                                         </div>
 
                                         <div class="form-group">
-                                            <label class="text-xs" for="ai-model-input">Model Name</label>
-                                            <input type="text" id="ai-model-input" class="form-control form-control-sm" placeholder="gemini-2.0-flash">
+                                            <div class="flex-between">
+                                                <label class="text-xs" for="ai-model-select">Model Name</label>
+                                                <button type="button" class="btn-text-xs text-primary" id="btn-fetch-ai-models" title="Detect live models available on your account">
+                                                    <i class="fa-solid fa-arrows-rotate"></i> Detect Models
+                                                </button>
+                                            </div>
+                                            <select id="ai-model-select" class="form-control form-control-sm">
+                                                <!-- Populated dynamically based on provider -->
+                                            </select>
+                                            <input type="text" id="ai-model-custom-input" class="form-control form-control-sm mt-1" placeholder="Enter custom model identifier..." style="display: none;">
                                         </div>
 
                                         <div class="form-group" id="ai-baseurl-group" style="display: none;">

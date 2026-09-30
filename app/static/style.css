@@ -7051,3 +7051,20 @@ html, body {
     vertical-align: middle;
 }
 
+.btn-text-xs {
+    background: transparent;
+    border: none;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+    transition: opacity 0.15s ease, color 0.15s ease;
+    text-decoration: underline;
+}
+
+.btn-text-xs:hover {
+    opacity: 0.8;
+}
+
+

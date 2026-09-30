@@ -2078,15 +2078,25 @@ async function generatePlaylist() {
             const prompt = (promptInput && promptInput.value.trim()) ? promptInput.value.trim() : "High energy road trip mix with driving rhythms and anthems";
             const styleRadio = document.querySelector('input[name="ai-curator-style"]:checked');
             const provSelect = document.getElementById("ai-provider-select");
-            const modelInput = document.getElementById("ai-model-input");
+            const modelSelect = document.getElementById("ai-model-select");
+            const customModelInput = document.getElementById("ai-model-custom-input");
             const keyInput = document.getElementById("ai-api-key-input");
             const baseInput = document.getElementById("ai-baseurl-input");
+
+            let chosenModel = "";
+            if (modelSelect) {
+                if (modelSelect.value === "__custom__") {
+                    chosenModel = customModelInput ? customModelInput.value.trim() : "";
+                } else {
+                    chosenModel = modelSelect.value.trim();
+                }
+            }
 
             payload.prompt = prompt;
             payload.curator_style = styleRadio ? styleRadio.value : "deep_cuts";
             if (provSelect) payload.ai_provider = provSelect.value;
-            if (modelInput && modelInput.value.trim()) payload.ai_model = modelInput.value.trim();
-            if (keyInput && keyInput.value.trim() && !keyInput.value.startsWith("••••")) payload.ai_api_key = keyInput.value.trim();
+            if (chosenModel) payload.ai_model = chosenModel;
+            if (keyInput && keyInput.value.trim() && !keyInput.value.startsWith("••••") && !keyInput.value.startsWith("Saved:")) payload.ai_api_key = keyInput.value.trim();
             if (baseInput && baseInput.value.trim()) payload.ai_base_url = baseInput.value.trim();
         } else if (mode === "decade") {
             const selectedDecades = Array.from(document.querySelectorAll("#playlist-decade-chips .chip-selectable.selected")).map(c => parseInt(c.dataset.decade));
@@ -2481,6 +2491,90 @@ async function selectSeedSong(track) {
 
 let savedAiConfig = null;
 
+const PROVIDER_METADATA = {
+    gemini: {
+        name: "Google Gemini",
+        showKey: true,
+        showBase: false,
+        helpText: "Get free Gemini key",
+        helpUrl: "https://aistudio.google.com/app/apikey",
+        defaultModel: "gemini-2.0-flash",
+        models: [
+            { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash (Recommended, Free Tier)" },
+            { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash (Free Tier)" },
+            { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro" },
+            { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" }
+        ]
+    },
+    groq: {
+        name: "Groq",
+        showKey: true,
+        showBase: false,
+        helpText: "Get free Groq key",
+        helpUrl: "https://console.groq.com/keys",
+        defaultModel: "openai/gpt-oss-120b",
+        models: [
+            { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B (Recommended, Ultra-Fast)" },
+            { id: "openai/gpt-oss-20b", name: "GPT-OSS 20B (Lightning Fast)" },
+            { id: "qwen/qwen3.8-27b", name: "Qwen 3.8 27B (High Quality)" },
+            { id: "canopylabs/orpheus-v1-english", name: "Orpheus v1 English" },
+            { id: "allam-2-7b", name: "Allam 2 7B" }
+        ]
+    },
+    openai: {
+        name: "OpenAI",
+        showKey: true,
+        showBase: false,
+        helpText: "OpenAI keys",
+        helpUrl: "https://platform.openai.com/api-keys",
+        defaultModel: "gpt-4o-mini",
+        models: [
+            { id: "gpt-4o-mini", name: "GPT-4o Mini (Recommended, Fast & Affordable)" },
+            { id: "gpt-4o", name: "GPT-4o (Flagship Model)" },
+            { id: "o3-mini", name: "o3-mini (High Reasoning)" },
+            { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo" }
+        ]
+    },
+    openrouter: {
+        name: "OpenRouter",
+        showKey: true,
+        showBase: false,
+        helpText: "OpenRouter keys",
+        helpUrl: "https://openrouter.ai/keys",
+        defaultModel: "google/gemini-2.0-flash-exp:free",
+        models: [
+            { id: "google/gemini-2.0-flash-exp:free", name: "Gemini 2.0 Flash Exp (Free)" },
+            { id: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B Instruct (Free)" },
+            { id: "deepseek/deepseek-chat:free", name: "DeepSeek V3 (Free)" }
+        ]
+    },
+    ollama: {
+        name: "Local Ollama",
+        showKey: false,
+        showBase: true,
+        helpText: "",
+        helpUrl: "",
+        defaultModel: "qwen3.5:9b",
+        models: [
+            { id: "qwen3.5:9b", name: "Qwen 3.5 9B" },
+            { id: "llama3.2", name: "Llama 3.2" },
+            { id: "llama3.1", name: "Llama 3.1" },
+            { id: "mistral", name: "Mistral 7B" }
+        ]
+    },
+    custom: {
+        name: "Custom OpenAI-Compatible",
+        showKey: true,
+        showBase: true,
+        helpText: "",
+        helpUrl: "",
+        defaultModel: "default",
+        models: [
+            { id: "default", name: "Default Model" }
+        ]
+    }
+};
+
 async function loadAiConfig() {
     try {
         const res = await fetch("/api/ai/config");
@@ -2492,29 +2586,87 @@ async function loadAiConfig() {
     }
 }
 
+function populateModelDropdown(provider, selectedModel) {
+    const modelSelect = document.getElementById("ai-model-select");
+    const customInput = document.getElementById("ai-model-custom-input");
+    if (!modelSelect) return;
+
+    const pMeta = PROVIDER_METADATA[provider] || PROVIDER_METADATA.groq;
+    const modelList = pMeta.models || [];
+    const targetModel = selectedModel || pMeta.defaultModel;
+
+    modelSelect.innerHTML = "";
+    let foundMatch = false;
+
+    modelList.forEach(m => {
+        const opt = document.createElement("option");
+        opt.value = m.id;
+        opt.textContent = m.name || m.id;
+        if (m.id === targetModel) {
+            opt.selected = true;
+            foundMatch = true;
+        }
+        modelSelect.appendChild(opt);
+    });
+
+    // Custom model option
+    const customOpt = document.createElement("option");
+    customOpt.value = "__custom__";
+    customOpt.textContent = "Custom Model...";
+    if (!foundMatch && targetModel && targetModel !== "default") {
+        customOpt.selected = true;
+        foundMatch = true;
+        if (customInput) {
+            customInput.style.display = "block";
+            customInput.value = targetModel;
+        }
+    } else {
+        if (customInput) {
+            customInput.style.display = "none";
+            customInput.value = "";
+        }
+    }
+    modelSelect.appendChild(customOpt);
+
+    if (!foundMatch && modelSelect.options.length > 0) {
+        modelSelect.selectedIndex = 0;
+    }
+}
+
+function getSelectedModelValue() {
+    const modelSelect = document.getElementById("ai-model-select");
+    const customInput = document.getElementById("ai-model-custom-input");
+    if (!modelSelect) return "";
+    if (modelSelect.value === "__custom__") {
+        return customInput ? customInput.value.trim() : "";
+    }
+    return modelSelect.value.trim();
+}
+
 function renderAiConfigUI(cfg) {
     if (!cfg) return;
     const providerSelect = document.getElementById("ai-provider-select");
     const keyInput = document.getElementById("ai-api-key-input");
-    const modelInput = document.getElementById("ai-model-input");
     const baseInput = document.getElementById("ai-baseurl-input");
     const badge = document.getElementById("ai-active-provider-badge");
 
-    if (providerSelect && cfg.provider) {
-        providerSelect.value = cfg.provider;
-    }
-
-    if (modelInput) {
-        modelInput.value = cfg.model || "";
+    const activeProvider = cfg.provider || "groq";
+    if (providerSelect) {
+        providerSelect.value = activeProvider;
     }
 
     if (baseInput) {
         baseInput.value = cfg.base_url || cfg.ollama_host || "";
     }
 
+    // Populate model dropdown
+    populateModelDropdown(activeProvider, cfg.model);
+
+    // Populate API key placeholder
     if (keyInput) {
-        if (cfg.has_api_key) {
-            keyInput.placeholder = `Saved: ${cfg.api_key_masked || '••••••••'} (leave blank to keep)`;
+        const provData = cfg.provider_configs?.[activeProvider] || cfg;
+        if (provData.has_api_key) {
+            keyInput.placeholder = `Saved: ${provData.api_key_masked || '••••••••'} (leave blank to keep)`;
             keyInput.value = "";
         } else {
             keyInput.placeholder = "Paste API key here...";
@@ -2524,74 +2676,31 @@ function renderAiConfigUI(cfg) {
 
     // Update active badge
     if (badge) {
-        const prov = (cfg.provider || "gemini").toUpperCase();
-        if (cfg.provider === "ollama") {
+        const provUpper = activeProvider.toUpperCase();
+        const provData = cfg.provider_configs?.[activeProvider] || cfg;
+        if (activeProvider === "ollama") {
             badge.className = "badge badge-primary";
             badge.innerHTML = `<i class="fa-solid fa-server"></i> Ollama Local`;
-        } else if (cfg.has_api_key) {
+        } else if (provData.has_api_key) {
             badge.className = "badge badge-success";
-            badge.innerHTML = `<i class="fa-solid fa-check"></i> ${prov} (Ready)`;
+            badge.innerHTML = `<i class="fa-solid fa-check"></i> ${provUpper} (Ready)`;
         } else {
             badge.className = "badge badge-warning";
-            badge.innerHTML = `<i class="fa-solid fa-key"></i> ${prov} (Set Key)`;
+            badge.innerHTML = `<i class="fa-solid fa-key"></i> ${provUpper} (Set Key)`;
         }
     }
 
-    updateProviderFieldVisibility(cfg.provider || "gemini");
+    updateProviderFieldVisibility(activeProvider);
 }
 
 function updateProviderFieldVisibility(provider) {
     const keyGroup = document.getElementById("ai-key-group");
     const baseGroup = document.getElementById("ai-baseurl-group");
     const helpLink = document.getElementById("ai-key-help-link");
-    const modelInput = document.getElementById("ai-model-input");
+    const keyInput = document.getElementById("ai-api-key-input");
+    const baseInput = document.getElementById("ai-baseurl-input");
 
-    const providerConfigs = {
-        gemini: {
-            showKey: true,
-            showBase: false,
-            helpText: "Get free Gemini key",
-            helpUrl: "https://aistudio.google.com/app/apikey",
-            defaultModel: "gemini-2.0-flash"
-        },
-        groq: {
-            showKey: true,
-            showBase: false,
-            helpText: "Get free Groq key",
-            helpUrl: "https://console.groq.com/keys",
-            defaultModel: "llama-3.3-70b-versatile"
-        },
-        openai: {
-            showKey: true,
-            showBase: false,
-            helpText: "OpenAI keys",
-            helpUrl: "https://platform.openai.com/api-keys",
-            defaultModel: "gpt-4o-mini"
-        },
-        openrouter: {
-            showKey: true,
-            showBase: false,
-            helpText: "OpenRouter keys",
-            helpUrl: "https://openrouter.ai/keys",
-            defaultModel: "google/gemini-2.0-flash-exp:free"
-        },
-        ollama: {
-            showKey: false,
-            showBase: true,
-            helpText: "",
-            helpUrl: "",
-            defaultModel: "qwen3.5:9b"
-        },
-        custom: {
-            showKey: true,
-            showBase: true,
-            helpText: "",
-            helpUrl: "",
-            defaultModel: "default"
-        }
-    };
-
-    const p = providerConfigs[provider] || providerConfigs.gemini;
+    const p = PROVIDER_METADATA[provider] || PROVIDER_METADATA.groq;
 
     if (keyGroup) keyGroup.style.display = p.showKey ? "block" : "none";
     if (baseGroup) baseGroup.style.display = p.showBase ? "block" : "none";
@@ -2604,8 +2713,69 @@ function updateProviderFieldVisibility(provider) {
             helpLink.style.display = "none";
         }
     }
-    if (modelInput && (!modelInput.value || modelInput.value.trim() === "")) {
-        modelInput.placeholder = p.defaultModel;
+
+    // Check saved config for this specific provider
+    const provSaved = savedAiConfig?.provider_configs?.[provider];
+    if (keyInput) {
+        if (provSaved?.has_api_key) {
+            keyInput.placeholder = `Saved: ${provSaved.api_key_masked} (leave blank to keep)`;
+            keyInput.value = "";
+        } else {
+            keyInput.placeholder = "Paste API key here...";
+            keyInput.value = "";
+        }
+    }
+
+    if (baseInput) {
+        if (provSaved?.base_url) {
+            baseInput.value = provSaved.base_url;
+        } else if (provider === "ollama") {
+            baseInput.value = "http://192.168.178.31:11434";
+        } else {
+            baseInput.value = "";
+        }
+    }
+}
+
+async function fetchAiModels(provider) {
+    const btn = document.getElementById("btn-fetch-ai-models");
+    const keyInput = document.getElementById("ai-api-key-input");
+    const baseInput = document.getElementById("ai-baseurl-input");
+    const origHtml = btn ? btn.innerHTML : "";
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Detecting...`;
+    }
+
+    try {
+        let url = `/api/ai/models?provider=${encodeURIComponent(provider)}`;
+        if (keyInput && keyInput.value.trim() && !keyInput.value.startsWith("••••") && !keyInput.value.startsWith("Saved:")) {
+            url += `&api_key=${encodeURIComponent(keyInput.value.trim())}`;
+        }
+        if (baseInput && baseInput.value.trim()) {
+            url += `&base_url=${encodeURIComponent(baseInput.value.trim())}`;
+        }
+
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.success && data.models && data.models.length > 0) {
+            if (PROVIDER_METADATA[provider]) {
+                PROVIDER_METADATA[provider].models = data.models;
+            }
+            const currentSelected = getSelectedModelValue();
+            populateModelDropdown(provider, currentSelected);
+            showToast(`Detected ${data.models.length} live models for ${provider.toUpperCase()}!`, "success");
+        } else {
+            showToast("Could not detect live models; using curated defaults.", "info");
+        }
+    } catch (e) {
+        showToast("Error detecting models: " + e.message, "error");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+        }
     }
 }
 
@@ -2618,18 +2788,18 @@ async function saveAiConfig() {
     }
 
     try {
-        const provider = document.getElementById("ai-provider-select")?.value || "gemini";
+        const provider = document.getElementById("ai-provider-select")?.value || "groq";
         const keyInput = document.getElementById("ai-api-key-input");
-        const modelInput = document.getElementById("ai-model-input");
         const baseInput = document.getElementById("ai-baseurl-input");
+        const chosenModel = getSelectedModelValue() || PROVIDER_METADATA[provider]?.defaultModel;
 
         const payload = {
             provider: provider,
-            model: modelInput?.value.trim() || undefined,
+            model: chosenModel,
             base_url: baseInput?.value.trim() || undefined
         };
 
-        if (keyInput && keyInput.value.trim() && !keyInput.value.startsWith("••••")) {
+        if (keyInput && keyInput.value.trim() && !keyInput.value.startsWith("••••") && !keyInput.value.startsWith("Saved:")) {
             payload.api_key = keyInput.value.trim();
         }
 
@@ -2646,7 +2816,7 @@ async function saveAiConfig() {
 
         const statusEl = document.getElementById("ai-test-status");
         if (statusEl) {
-            statusEl.innerHTML = `<span class="text-success"><i class="fa-solid fa-check"></i> Settings saved</span>`;
+            statusEl.innerHTML = `<span class="text-success"><i class="fa-solid fa-check"></i> Settings saved (${chosenModel})</span>`;
         }
     } catch (e) {
         showToast("Error saving AI settings: " + e.message, "error");
@@ -2672,18 +2842,18 @@ async function testAiConnection() {
     }
 
     try {
-        const provider = document.getElementById("ai-provider-select")?.value || "gemini";
+        const provider = document.getElementById("ai-provider-select")?.value || "groq";
         const keyInput = document.getElementById("ai-api-key-input");
-        const modelInput = document.getElementById("ai-model-input");
         const baseInput = document.getElementById("ai-baseurl-input");
+        const chosenModel = getSelectedModelValue() || PROVIDER_METADATA[provider]?.defaultModel;
 
         const payload = {
             provider: provider,
-            model: modelInput?.value.trim() || undefined,
+            model: chosenModel,
             base_url: baseInput?.value.trim() || undefined
         };
 
-        if (keyInput && keyInput.value.trim() && !keyInput.value.startsWith("••••")) {
+        if (keyInput && keyInput.value.trim() && !keyInput.value.startsWith("••••") && !keyInput.value.startsWith("Saved:")) {
             payload.api_key = keyInput.value.trim();
         }
 
@@ -2736,19 +2906,37 @@ function initAiCuratorControls() {
     const providerSelect = document.getElementById("ai-provider-select");
     if (providerSelect) {
         providerSelect.addEventListener("change", (e) => {
-            updateProviderFieldVisibility(e.target.value);
-            const modelInput = document.getElementById("ai-model-input");
-            if (modelInput) {
-                const defaults = {
-                    gemini: "gemini-2.0-flash",
-                    groq: "llama-3.3-70b-versatile",
-                    openai: "gpt-4o-mini",
-                    openrouter: "google/gemini-2.0-flash-exp:free",
-                    ollama: "qwen3.5:9b",
-                    custom: "default"
-                };
-                modelInput.value = defaults[e.target.value] || "";
+            const newProv = e.target.value;
+            updateProviderFieldVisibility(newProv);
+            const savedProvModel = savedAiConfig?.provider_configs?.[newProv]?.model;
+            populateModelDropdown(newProv, savedProvModel);
+        });
+    }
+
+    // 2b. Model Select Change (handle custom)
+    const modelSelect = document.getElementById("ai-model-select");
+    const customModelInput = document.getElementById("ai-model-custom-input");
+    if (modelSelect) {
+        modelSelect.addEventListener("change", (e) => {
+            if (e.target.value === "__custom__") {
+                if (customModelInput) {
+                    customModelInput.style.display = "block";
+                    customModelInput.focus();
+                }
+            } else {
+                if (customModelInput) {
+                    customModelInput.style.display = "none";
+                }
             }
+        });
+    }
+
+    // 2c. Detect Models button
+    const btnDetect = document.getElementById("btn-fetch-ai-models");
+    if (btnDetect) {
+        btnDetect.addEventListener("click", () => {
+            const curProv = document.getElementById("ai-provider-select")?.value || "groq";
+            fetchAiModels(curProv);
         });
     }
 
