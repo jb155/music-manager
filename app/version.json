@@ -1,5 +1,5 @@
 {
-  "version": "1.7.5",
+  "version": "1.7.6",
   "release_date": "2026-10-02",
-  "notes": "Streamline Missing Tracks Finder into a unified single-button workflow: 1-click scan, batch download, library import, and high-res album art embedding."
+  "notes": "Redesign Library Completer tab: remove redundant table and filter bar, replacing with a dedicated 1-click pipeline hero card, automated step flow, and real-time live status indicator."
 }

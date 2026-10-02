@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Music Manager Web</title>
-    <link rel="stylesheet" href="/static/style.css?v=1.7.5">
+    <link rel="stylesheet" href="/static/style.css?v=1.7.6">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
 <body>
@@ -927,44 +927,58 @@
                 </div>
             </section>
 
-            <!-- TAB 3: MISSING TRACKS -->
+            <!-- TAB 3: MISSING TRACKS & ALBUM ART -->
             <section class="tab-pane" id="pane-missing">
                 <div class="card glass">
-                    <div class="card-header flex-between">
-                        <div>
-                            <h2><i class="fa-solid fa-list-check"></i> Library Missing Tracks Finder</h2>
-                            <p class="subtitle">Identifies incomplete albums in your Beets library using MusicBrainz release diffs, and allows 1-click or automated batch downloading.</p>
+                    <div class="card-header">
+                        <h2><i class="fa-solid fa-wand-magic-sparkles"></i> 1-Click Library & Album Art Completer</h2>
+                        <p class="subtitle">Automatically scan your music collection for incomplete albums, batch download missing tracks, import into Beets, and retrieve high-resolution album cover art.</p>
+                    </div>
+
+                    <div class="missing-hero-container mt-4" style="text-align: center; padding: 40px 24px; background: rgba(255, 255, 255, 0.02); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.06);">
+                        <div style="width: 76px; height: 76px; border-radius: 50%; background: rgba(var(--primary-rgb), 0.15); color: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 2.2rem; margin: 0 auto 20px auto; box-shadow: 0 0 28px rgba(var(--primary-rgb), 0.3);">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>
                         </div>
-                        <div class="action-buttons">
-                            <button class="btn btn-primary" id="btn-find-and-download-all" style="font-weight: 600; padding: 10px 22px; box-shadow: 0 0 16px rgba(var(--primary-rgb), 0.35);">
+
+                        <h3 style="margin-bottom: 12px; font-weight: 600; font-size: 1.35rem;">Complete Incomplete Albums</h3>
+                        <p class="text-muted" style="max-width: 600px; margin: 0 auto 26px auto; line-height: 1.6; font-size: 0.95rem;">
+                            One click executes the complete pipeline: queries your Beets catalog against MusicBrainz for missing songs, downloads them sequentially, auto-imports into your vault, and embeds 1000×1000 high-res cover art.
+                        </p>
+
+                        <div style="display: flex; justify-content: center; margin-bottom: 20px;">
+                            <button class="btn btn-primary" id="btn-find-and-download-all" style="font-weight: 600; padding: 14px 34px; font-size: 1.05rem; box-shadow: 0 0 24px rgba(var(--primary-rgb), 0.45); border-radius: 30px;">
                                 <i class="fa-solid fa-wand-magic-sparkles"></i> Find All Missing & Download (with Album Art)
                             </button>
                         </div>
-                    </div>
 
-                    <div class="table-filter-bar mt-3">
-                        <input type="text" id="missing-search" placeholder="Filter by artist, track title, or album..." class="search-input">
-                        <span class="count-indicator" id="missing-count-text">0 missing tracks cataloged</span>
-                    </div>
+                        <!-- Live Pipeline Status Card -->
+                        <div id="missing-pipeline-status" style="display: none; max-width: 620px; margin: 20px auto 0 auto; padding: 18px 22px; background: rgba(var(--primary-rgb), 0.08); border: 1px solid rgba(var(--primary-rgb), 0.3); border-radius: 10px; text-align: center;">
+                            <div style="display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 600; font-size: 1.05rem; margin-bottom: 6px;">
+                                <i class="fa-solid fa-spinner fa-spin" id="missing-pipeline-spinner" style="color: var(--primary);"></i>
+                                <span id="missing-pipeline-action">Running Pipeline...</span>
+                            </div>
+                            <p id="missing-pipeline-message" class="text-muted" style="margin: 0; font-size: 0.9rem; line-height: 1.4;"></p>
+                        </div>
 
-                    <div class="table-container mt-2">
-                        <table class="data-table" id="missing-table">
-                            <thead>
-                                <tr>
-                                    <th style="width: 45px; text-align: center;">Preview</th>
-                                    <th>Artist</th>
-                                    <th>Album</th>
-                                    <th>#</th>
-                                    <th>Missing Title</th>
-                                    <th class="text-right">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody id="missing-tbody">
-                                <tr>
-                                    <td colspan="6" class="text-center text-muted">Click "Find All Missing & Download" to scan your library, download all missing songs, and fetch high-res album cover art in one click.</td>
-                                </tr>
-                            </tbody>
-                        </table>
+                        <!-- 4-Stage Pipeline Flow -->
+                        <div class="pipeline-steps-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-top: 36px; text-align: left;">
+                            <div style="padding: 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px;">
+                                <div style="color: var(--primary); font-weight: 600; margin-bottom: 6px;"><i class="fa-solid fa-magnifying-glass"></i> 1. Scan Library</div>
+                                <div class="text-muted" style="font-size: 0.85rem;">Scans your Beets database against MusicBrainz release diffs to catalog incomplete albums.</div>
+                            </div>
+                            <div style="padding: 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px;">
+                                <div style="color: #38bdf8; font-weight: 600; margin-bottom: 6px;"><i class="fa-solid fa-cloud-arrow-down"></i> 2. Batch Download</div>
+                                <div class="text-muted" style="font-size: 0.85rem;">Sequentially fetches high-quality audio files with SpotDL/yt-dlp and duplicate protection.</div>
+                            </div>
+                            <div style="padding: 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px;">
+                                <div style="color: #4ade80; font-weight: 600; margin-bottom: 6px;"><i class="fa-solid fa-folder-tree"></i> 3. Library Import</div>
+                                <div class="text-muted" style="font-size: 0.85rem;">Automatically moves, tags, and organizes files into permanent library folders with Beets.</div>
+                            </div>
+                            <div style="padding: 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px;">
+                                <div style="color: #c084fc; font-weight: 600; margin-bottom: 6px;"><i class="fa-solid fa-image"></i> 4. Album Artwork</div>
+                                <div class="text-muted" style="font-size: 0.85rem;">Retrieves 1000×1000 high-res cover art from iTunes and embeds directly into audio metadata.</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -1300,12 +1314,12 @@
 
     <!-- Subtle Version Watermark (Bottom-Left) -->
     <div class="version-watermark" id="app-version-watermark" title="Music Manager (Click to view version and update details)">
-        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.7.5
+        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.7.6
     </div>
 
     <!-- Notification Toast -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/app.js?v=1.7.5"></script>
+    <script src="/static/app.js?v=1.7.6"></script>
 </body>
 </html>

@@ -402,114 +402,40 @@ document.getElementById("download-form").addEventListener("submit", async (e) =>
     }
 });
 
-// Missing Tracks
+// Missing Tracks & Album Art 1-Click Pipeline
 let missingTracksData = [];
 
 async function loadMissingTracks() {
-    const tbody = document.getElementById("missing-tbody");
-    if (missingTracksData.length > 0) {
-        renderMissingTable(missingTracksData);
-        return;
-    }
+    await updateMissingPipelineUI();
+}
+
+async function updateMissingPipelineUI() {
+    const statusCard = document.getElementById("missing-pipeline-status");
+    const actionEl = document.getElementById("missing-pipeline-action");
+    const msgEl = document.getElementById("missing-pipeline-message");
+    const spinner = document.getElementById("missing-pipeline-spinner");
+    const btn = document.getElementById("btn-find-and-download-all");
 
     try {
-        const res = await fetch("/api/missing/cached");
+        const res = await fetch("/api/status");
         const data = await res.json();
-        if (data.tracks && data.tracks.length > 0) {
-            missingTracksData = data.tracks;
-            const badge = document.getElementById("missing-badge");
-            if (badge) badge.textContent = data.count || 0;
-            const countText = document.getElementById("missing-count-text");
-            if (countText) countText.textContent = `${data.count || 0} missing tracks cataloged`;
-            renderMissingTable(missingTracksData);
+
+        if (data.status === "running") {
+            if (statusCard) statusCard.style.display = "block";
+            if (actionEl) actionEl.textContent = data.action || "Running Pipeline...";
+            if (msgEl) msgEl.textContent = data.message || "Working on library...";
+            if (spinner) spinner.className = "fa-solid fa-spinner fa-spin";
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Running Pipeline...`;
+            }
         } else {
-            tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted" style="padding: 36px 16px;">
-                <i class="fa-solid fa-wand-magic-sparkles" style="font-size: 2.2rem; margin-bottom: 14px; display: block; opacity: 0.6; color: var(--primary);"></i>
-                No missing tracks currently cataloged.<br>
-                Click <strong>Find All Missing & Download (with Album Art)</strong> above to find and download missing tracks in one click.
-            </td></tr>`;
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i> Find All Missing & Download (with Album Art)`;
+            }
         }
-    } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">Error loading missing tracks.</td></tr>`;
-    }
-}
-
-async function runMissingScan(refresh = true, depth = 50) {
-    const tbody = document.getElementById("missing-tbody");
-
-    tbody.innerHTML = `<tr><td colspan="6" class="text-center"><div class="spinner" style="margin: 10px auto;"></div> Scanning library for incomplete albums via MusicBrainz... this takes ~15-20s.</td></tr>`;
-
-    try {
-        const res = await fetch(`/api/missing?refresh=${refresh}&max_albums=${depth}`);
-        const data = await res.json();
-        missingTracksData = data.tracks || [];
-
-        const badge = document.getElementById("missing-badge");
-        if (badge) badge.textContent = data.count || 0;
-        const countText = document.getElementById("missing-count-text");
-        if (countText) countText.textContent = `${data.count || 0} missing tracks found`;
-
-        renderMissingTable(missingTracksData);
-        showToast(`Scan complete: found ${data.count || 0} missing tracks!`, "success");
-    } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">Error scanning missing tracks.</td></tr>`;
-        showToast("Error scanning missing tracks", "error");
-    }
-}
-
-function renderMissingTable(tracks) {
-    const tbody = document.getElementById("missing-tbody");
-    if (!tracks || tracks.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">No missing tracks found! Your library looks complete.</td></tr>`;
-        return;
-    }
-
-    tbody.innerHTML = tracks.map((t, idx) => `
-        <tr id="missing-row-${idx}" data-artist="${escapeAttr(t.artist)}" data-title="${escapeAttr(t.title)}">
-            <td style="text-align: center;">
-                <button type="button" class="btn-track-preview btn-missing-play" data-artist="${escapeAttr(t.artist)}" data-title="${escapeAttr(t.title)}" title="Preview 30s Audio Clip">
-                    <i class="fa-solid fa-headphones"></i>
-                </button>
-            </td>
-            <td><strong>${escapeHtml(t.artist)}</strong></td>
-            <td><span class="text-muted">${escapeHtml(t.album || "")}</span></td>
-            <td class="text-muted" style="text-align:center; font-size: 0.8em;">${escapeHtml(String(t.track_num || "?"))}</td>
-            <td>${escapeHtml(t.title)}</td>
-            <td class="text-right">
-                <button class="btn btn-secondary btn-sm" id="btn-missing-dl-${idx}" onclick="downloadMissingSingleTrack(${idx}, '${escapeAttr(t.query)}')">
-                    <i class="fa-solid fa-download"></i> Download
-                </button>
-            </td>
-        </tr>
-    `).join("");
-
-    tbody.querySelectorAll(".btn-missing-play").forEach(btn => {
-        btn.addEventListener("click", () => {
-            const artist = btn.dataset.artist;
-            const title = btn.dataset.title;
-            if (audioManager) audioManager.playQuery(artist, title, btn);
-        });
-    });
-
-    if (audioManager) audioManager.updatePlayStateUI();
-}
-
-async function downloadMissingSingleTrack(idx, query) {
-    const btn = document.getElementById(`btn-missing-dl-${idx}`);
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Downloading...`;
-    }
-    const track = (typeof missingTracksData !== 'undefined' && missingTracksData && missingTracksData[idx]) ? missingTracksData[idx] : null;
-    const targetAlbum = track ? (track.album || null) : null;
-    await downloadSingleTrack(query, false, targetAlbum);
-    if (btn) {
-        btn.className = "btn btn-sm";
-        btn.style.background = "rgba(34, 197, 94, 0.2)";
-        btn.style.color = "#4ade80";
-        btn.style.border = "1px solid rgba(34, 197, 94, 0.4)";
-        btn.innerHTML = `<i class="fa-solid fa-check"></i> Queued`;
-    }
+    } catch (_) {}
 }
 
 const btnFindAndDownloadAll = document.getElementById("btn-find-and-download-all");
@@ -517,10 +443,19 @@ if (btnFindAndDownloadAll) {
     btnFindAndDownloadAll.addEventListener("click", async () => {
         if (!confirm("Find all missing tracks, download them, import to library, and fetch high-res album cover art?")) return;
 
+        const statusCard = document.getElementById("missing-pipeline-status");
+        const actionEl = document.getElementById("missing-pipeline-action");
+        const msgEl = document.getElementById("missing-pipeline-message");
+        const spinner = document.getElementById("missing-pipeline-spinner");
+
         try {
             btnFindAndDownloadAll.disabled = true;
-            const originalHtml = btnFindAndDownloadAll.innerHTML;
             btnFindAndDownloadAll.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Running Pipeline...`;
+
+            if (statusCard) statusCard.style.display = "block";
+            if (actionEl) actionEl.textContent = "Initializing Pipeline...";
+            if (msgEl) msgEl.textContent = "Scanning incomplete albums and contacting MusicBrainz...";
+            if (spinner) spinner.className = "fa-solid fa-spinner fa-spin";
 
             const res = await fetch("/api/missing/find-and-download", {
                 method: "POST",
@@ -533,54 +468,45 @@ if (btnFindAndDownloadAll) {
                 const termTab = document.querySelector('[data-tab="terminal"]');
                 if (termTab) termTab.click();
 
-                let scanLoaded = false;
                 const pollInterval = setInterval(async () => {
                     try {
-                        const statusRes = await fetch("/api/progress");
+                        const statusRes = await fetch("/api/status");
                         const statusData = await statusRes.json();
 
-                        // Once scan completes and downloads start, refresh missing table if not loaded
-                        if (!scanLoaded && statusData.action && statusData.action.toLowerCase().includes("downloading")) {
-                            scanLoaded = true;
-                            missingTracksData = [];
-                            await loadMissingTracks();
-                        }
-
-                        if (statusData.status !== "running") {
+                        if (statusData.status === "running") {
+                            if (statusCard) statusCard.style.display = "block";
+                            if (actionEl) actionEl.textContent = statusData.action || "Running Pipeline...";
+                            if (msgEl) msgEl.textContent = statusData.message || "Processing library tracks...";
+                        } else {
                             clearInterval(pollInterval);
                             btnFindAndDownloadAll.disabled = false;
-                            btnFindAndDownloadAll.innerHTML = originalHtml;
-                            missingTracksData = [];
-                            await loadMissingTracks();
+                            btnFindAndDownloadAll.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i> Find All Missing & Download (with Album Art)`;
+                            if (statusCard) {
+                                statusCard.style.display = "block";
+                                if (spinner) spinner.className = "fa-solid fa-check-circle text-success";
+                                if (actionEl) actionEl.textContent = "Pipeline Completed Successfully!";
+                                if (msgEl) msgEl.textContent = "All missing tracks downloaded, library imported, and album cover art updated.";
+                            }
                         }
                     } catch (_) {
                         clearInterval(pollInterval);
                         btnFindAndDownloadAll.disabled = false;
-                        btnFindAndDownloadAll.innerHTML = originalHtml;
+                        btnFindAndDownloadAll.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i> Find All Missing & Download (with Album Art)`;
                     }
                 }, 3000);
             } else {
                 const err = await res.json();
                 showToast(err.detail || "Error starting pipeline", "error");
                 btnFindAndDownloadAll.disabled = false;
-                btnFindAndDownloadAll.innerHTML = originalHtml;
+                btnFindAndDownloadAll.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i> Find All Missing & Download (with Album Art)`;
+                if (statusCard) statusCard.style.display = "none";
             }
         } catch (e) {
             showToast("Network error starting pipeline", "error");
             btnFindAndDownloadAll.disabled = false;
-            btnFindAndDownloadAll.innerHTML = originalHtml;
+            btnFindAndDownloadAll.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i> Find All Missing & Download (with Album Art)`;
+            if (statusCard) statusCard.style.display = "none";
         }
-    });
-}
-
-const missingSearchInput = document.getElementById("missing-search");
-if (missingSearchInput) {
-    missingSearchInput.addEventListener("input", (e) => {
-        const term = normalizeSearchText(e.target.value);
-        const filtered = missingTracksData.filter(t =>
-            normalizeSearchText(`${t.artist} ${t.album || ""} ${t.title}`).includes(term)
-        );
-        renderMissingTable(filtered);
     });
 }
 
