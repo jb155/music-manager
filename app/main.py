@@ -55,7 +55,7 @@ def _load_app_version() -> str:
                         return str(data["version"]).strip()
             except Exception:
                 pass
-    return "1.7.3"
+    return "1.7.4"
 
 APP_VERSION = _load_app_version()
 
@@ -126,7 +126,13 @@ class DownloadRequest(BaseModel):
 
 class MissingDownloadRequest(BaseModel):
     tracks: Optional[List[Union[str, Dict[str, Any]]]] = None
-    auto_import: bool = False
+    auto_import: bool = True
+    fetch_art: bool = True
+
+class FindAndDownloadMissingRequest(BaseModel):
+    max_albums: int = 50
+    auto_import: bool = True
+    fetch_art: bool = True
 
 class ImportRequest(BaseModel):
     force: bool = False
@@ -381,8 +387,17 @@ async def start_missing_download(req: MissingDownloadRequest, bg: BackgroundTask
     if service.task_progress["status"] == "running":
         raise HTTPException(status_code=409, detail="A task is already running.")
     service._abort_requested = False
-    bg.add_task(service.download_missing_tracks, req.tracks, req.auto_import)
+    bg.add_task(service.download_missing_tracks, req.tracks, req.auto_import, req.fetch_art)
     return {"message": "Missing tracks download started"}
+
+@app.post("/api/missing/find-and-download")
+async def find_and_download_missing_route(req: FindAndDownloadMissingRequest, bg: BackgroundTasks):
+    """1-Click pipeline: scan for missing tracks, download them, auto-import, and fetch/embed album art."""
+    if service.task_progress["status"] == "running":
+        raise HTTPException(status_code=409, detail="A task is already running.")
+    service._abort_requested = False
+    bg.add_task(service.find_and_download_missing, req.max_albums, req.auto_import, req.fetch_art)
+    return {"message": "Find all missing tracks & download pipeline started", "max_albums": req.max_albums}
 
 @app.post("/api/upload")
 async def upload_music_files(

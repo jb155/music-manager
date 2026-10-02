@@ -1837,8 +1837,8 @@ paths:
 
         return {"success": not self._abort_requested, "downloaded": success_count, "failed": fail_count, "total": total, "aborted": self._abort_requested}
 
-    async def download_missing_tracks(self, tracks: Optional[List[Union[str, Dict[str, Any]]]] = None, auto_import: bool = False) -> Dict[str, Any]:
-        """Download missing tracks sequentially with error resilience, abort handling, and cache pruning."""
+    async def download_missing_tracks(self, tracks: Optional[List[Union[str, Dict[str, Any]]]] = None, auto_import: bool = False, fetch_art: bool = True) -> Dict[str, Any]:
+        """Download missing tracks sequentially with error resilience, abort handling, cache pruning, and artwork retrieval."""
         self._abort_requested = False
         cached_items = self.get_cached_missing_tracks()
 
@@ -1946,6 +1946,37 @@ paths:
                 await self.broadcast_log("\n[AUTO-IMPORT] Importing downloaded tracks into library...\n")
                 await self.import_library()
 
+            if success_count > 0 and fetch_art and not self._abort_requested:
+                await self.broadcast_log("\n[ALBUM ART] Fetching and embedding high-res cover art for affected albums...\n")
+                self.task_progress["action"] = "Downloading Album Art"
+                self.task_progress["message"] = "Fetching high-res cover art & embedding into audio files..."
+
+                # Find affected albums
+                albums_to_art = {}
+                for item in track_items:
+                    if item.get("artist") and item.get("album"):
+                        albums_to_art[(item["artist"].strip(), item["album"].strip())] = True
+
+                for (art, alb) in albums_to_art.keys():
+                    if self._abort_requested:
+                        break
+                    try:
+                        await self._ensure_album_artwork(art, alb)
+                    except Exception as art_err:
+                        logger.debug(f"Artwork ensure error for '{art} - {alb}': {art_err}")
+
+                if not self._abort_requested:
+                    await self._run_command(["beet", "fetchart", "-q"], timeout=300)
+                    await self._run_command(["beet", "embedart", "-y"], timeout=300)
+                    for root, _, files in os.walk(self.music_dir):
+                        for f in files:
+                            if f.lower().startswith("cover."):
+                                try:
+                                    os.chmod(os.path.join(root, f), 0o664)
+                                except Exception:
+                                    pass
+                    await self.broadcast_log("[ALBUM ART] Cover art download and embedding complete!\n")
+
             # Prune downloaded queries from missing cache so UI updates immediately
             if downloaded_queries and self._last_missing_tracks:
                 self._last_missing_tracks = [t for t in self._last_missing_tracks if t.get("query") not in downloaded_queries]
@@ -1962,6 +1993,162 @@ paths:
                 self.task_progress = {"status": "idle", "action": None, "current": 0, "total": 0, "message": ""}
 
         return {"success": not self._abort_requested, "downloaded": success_count, "failed": fail_count, "total": total, "aborted": self._abort_requested}
+
+    async def _ensure_album_artwork(self, artist: str, album: str) -> bool:
+        """Ensure high-resolution cover art (cover.jpg) exists in the album directory in library."""
+        if not artist or not album:
+            return False
+
+        db_path = os.path.join(self.beets_dir, "library.db")
+        album_dir = None
+        album_id = None
+        try:
+            conn = sqlite3.connect(db_path)
+            c = conn.cursor()
+            c.execute("""
+                SELECT a.id, a.path, a.artpath 
+                FROM albums a
+                LEFT JOIN items i ON i.album_id = a.id
+                WHERE (LOWER(a.albumartist) = LOWER(?) OR LOWER(i.artist) = LOWER(?))
+                  AND LOWER(a.album) = LOWER(?)
+                LIMIT 1;
+            """, (artist, artist, album))
+            row = c.fetchone()
+            conn.close()
+            if row:
+                album_id = row[0]
+                if row[1]:
+                    p = row[1].decode("utf-8", errors="replace") if isinstance(row[1], bytes) else str(row[1])
+                    p = p.replace("\\", "/")
+                    album_dir = p if os.path.isabs(p) else os.path.join(self.music_dir, p)
+                if row[2]:
+                    art_p = row[2].decode("utf-8", errors="replace") if isinstance(row[2], bytes) else str(row[2])
+                    art_p = art_p.replace("\\", "/")
+                    full_art = art_p if os.path.isabs(art_p) else os.path.join(self.music_dir, art_p)
+                    if os.path.exists(full_art):
+                        return True
+        except Exception as e:
+            logger.debug(f"DB lookup error in _ensure_album_artwork: {e}")
+
+        # Check album directory on filesystem if path was found
+        if album_dir and os.path.exists(album_dir):
+            for f in os.listdir(album_dir):
+                if f.lower().startswith("cover.") or f.lower().startswith("front."):
+                    return True
+
+        # Query iTunes Search API for high-resolution album cover art
+        try:
+            clean_q = f"{artist} {album}".strip()
+            url = f"https://itunes.apple.com/search?term={urllib.parse.quote(clean_q)}&entity=album&limit=1"
+            req = urllib.request.Request(url, headers={"User-Agent": "MusicManager/1.7"})
+            loop = asyncio.get_running_loop()
+
+            def _fetch_itunes():
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+
+            data = await loop.run_in_executor(None, _fetch_itunes)
+            if data.get("results"):
+                art_url = data["results"][0].get("artworkUrl100")
+                if art_url:
+                    high_res_url = art_url.replace("100x100bb", "1000x1000bb")
+
+                    def _download_img():
+                        img_req = urllib.request.Request(high_res_url, headers={"User-Agent": "MusicManager/1.7"})
+                        with urllib.request.urlopen(img_req, timeout=15) as img_resp:
+                            return img_resp.read()
+
+                    img_data = await loop.run_in_executor(None, _download_img)
+                    if img_data and album_dir and os.path.exists(album_dir):
+                        dest = os.path.join(album_dir, "cover.jpg")
+                        with open(dest, "wb") as f:
+                            f.write(img_data)
+                        try:
+                            os.chmod(dest, 0o664)
+                        except Exception:
+                            pass
+                        await self.broadcast_log(f"   [ALBUM ART] Saved high-res cover art for '{artist} - {album}' -> cover.jpg\n")
+
+                        try:
+                            conn = sqlite3.connect(db_path)
+                            c = conn.cursor()
+                            if album_id:
+                                c.execute("UPDATE albums SET artpath = ? WHERE id = ?;", (dest, album_id))
+                            else:
+                                c.execute("UPDATE albums SET artpath = ? WHERE LOWER(albumartist) = LOWER(?) AND LOWER(album) = LOWER(?);", (dest, artist, album))
+                            conn.commit()
+                            conn.close()
+                        except Exception:
+                            pass
+                        return True
+        except Exception as e:
+            logger.debug(f"iTunes album artwork lookup error for '{artist} - {album}': {e}")
+
+        return False
+
+    async def find_and_download_missing(self, max_albums: int = 50, auto_import: bool = True, fetch_art: bool = True) -> Dict[str, Any]:
+        """1-Click automated pipeline:
+        1. Scan library for incomplete albums and identify missing tracks.
+        2. Sequentially download all identified missing tracks into staging.
+        3. Auto-import downloaded tracks into permanent library with Beets.
+        4. Download high-res album cover art and embed into files.
+        """
+        self._abort_requested = False
+        start_time = time.time()
+        try:
+            await self.broadcast_log("\n=======================================================\n")
+            await self.broadcast_log("   [1-CLICK PIPELINE] FIND ALL MISSING & DOWNLOAD       \n")
+            await self.broadcast_log("=======================================================\n")
+            await self.broadcast_log(f"[STEP 1/3] Scanning library for missing tracks (depth: top {max_albums} incomplete albums)...\n")
+
+            self.task_progress = {
+                "status": "running",
+                "action": "Finding Missing Tracks",
+                "current": 0,
+                "total": 3,
+                "message": f"Step 1/3: Scanning library for missing tracks..."
+            }
+
+            # Step 1: Scan for missing tracks
+            tracks = await self.get_missing_tracks(max_albums=max_albums, force_refresh=True)
+            if self._abort_requested:
+                await self.broadcast_log("\n[ABORT] Pipeline stopped by user.\n")
+                return {"success": False, "aborted": True, "downloaded": 0}
+
+            if not tracks or len(tracks) == 0:
+                await self.broadcast_log("[INFO] No missing tracks found in library! All scanned albums are complete.\n")
+                return {"success": True, "found": 0, "downloaded": 0, "message": "No missing tracks found"}
+
+            total_tracks = len(tracks)
+            await self.broadcast_log(f"\n[STEP 2/3] Found {total_tracks} missing tracks across incomplete albums. Starting batch download...\n")
+
+            # Step 2 & 3: Download missing tracks, auto-import, and fetch album art
+            download_result = await self.download_missing_tracks(tracks=tracks, auto_import=auto_import, fetch_art=fetch_art)
+            downloaded_count = download_result.get("downloaded", 0)
+
+            elapsed = time.time() - start_time
+            mins, secs = divmod(int(elapsed), 60)
+            time_str = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
+
+            await self.broadcast_log("\n=======================================================\n")
+            await self.broadcast_log(f"   [PIPELINE FINISHED] Completed in {time_str}          \n")
+            await self.broadcast_log(f"   Downloaded: {downloaded_count}/{total_tracks} tracks | Album Art: Updated\n")
+            await self.broadcast_log("=======================================================\n\n")
+
+            return {
+                "success": not self._abort_requested,
+                "found": total_tracks,
+                "downloaded": downloaded_count,
+                "failed": download_result.get("failed", 0),
+                "aborted": self._abort_requested,
+                "elapsed_seconds": round(elapsed, 1)
+            }
+        except Exception as e:
+            logger.error(f"Error in find_and_download_missing: {e}", exc_info=True)
+            await self.broadcast_log(f"\n[ERROR] Pipeline encountered an error: {e}\n")
+            return {"success": False, "error": str(e), "aborted": self._abort_requested}
+        finally:
+            self.task_progress = {"status": "idle", "action": None, "current": 0, "total": 0, "message": ""}
 
     async def import_library(self, force: bool = False) -> Dict[str, Any]:
         """Move, import with Beets, and clean up staging folder."""

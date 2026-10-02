@@ -1,5 +1,5 @@
 {
-  "version": "1.7.3",
+  "version": "1.7.4",
   "release_date": "2026-10-02",
-  "notes": "Ensure track play and preview buttons maintain consistent circular aspect ratio on long track titles, fix flex shrink layout issues, and refine hover/active highlight visual consistency across recommendations, library, playlists, and discography."
+  "notes": "Add 1-Click Missing Tracks Finder & Batch Downloader pipeline with automated high-resolution album cover art retrieval and Beets library embedding."
 }
