@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Music Manager Web</title>
-    <link rel="stylesheet" href="/static/style.css?v=1.7.4">
+    <link rel="stylesheet" href="/static/style.css?v=1.7.5">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
 <body>
@@ -935,21 +935,9 @@
                             <h2><i class="fa-solid fa-list-check"></i> Library Missing Tracks Finder</h2>
                             <p class="subtitle">Identifies incomplete albums in your Beets library using MusicBrainz release diffs, and allows 1-click or automated batch downloading.</p>
                         </div>
-                        <div class="action-buttons" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                            <select id="missing-scan-depth" class="select-control" title="Scan depth for incomplete albums">
-                                <option value="25">Top 25 Incomplete</option>
-                                <option value="50" selected>Top 50 Incomplete</option>
-                                <option value="100">Top 100 Incomplete</option>
-                                <option value="250">Top 250 Incomplete</option>
-                            </select>
-                            <button class="btn btn-primary" id="btn-find-and-download-all" style="font-weight: 600; padding: 9px 18px; box-shadow: 0 0 16px rgba(var(--primary-rgb), 0.35);">
+                        <div class="action-buttons">
+                            <button class="btn btn-primary" id="btn-find-and-download-all" style="font-weight: 600; padding: 10px 22px; box-shadow: 0 0 16px rgba(var(--primary-rgb), 0.35);">
                                 <i class="fa-solid fa-wand-magic-sparkles"></i> Find All Missing & Download (with Album Art)
-                            </button>
-                            <button class="btn btn-secondary btn-sm" id="btn-scan-missing" title="Scan library only without downloading">
-                                <i class="fa-solid fa-arrows-rotate"></i> Scan Only
-                            </button>
-                            <button class="btn btn-secondary btn-sm" id="btn-download-all-missing" disabled title="Download all missing tracks currently displayed in the table">
-                                <i class="fa-solid fa-cloud-arrow-down"></i> Download Displayed
                             </button>
                         </div>
                     </div>
@@ -1312,12 +1300,12 @@
 
     <!-- Subtle Version Watermark (Bottom-Left) -->
     <div class="version-watermark" id="app-version-watermark" title="Music Manager (Click to view version and update details)">
-        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.7.4
+        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.7.5
     </div>
 
     <!-- Notification Toast -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/app.js?v=1.7.4"></script>
+    <script src="/static/app.js?v=1.7.5"></script>
 </body>
 </html>

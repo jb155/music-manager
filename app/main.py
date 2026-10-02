@@ -55,7 +55,7 @@ def _load_app_version() -> str:
                         return str(data["version"]).strip()
             except Exception:
                 pass
-    return "1.7.4"
+    return "1.7.5"
 
 APP_VERSION = _load_app_version()
 

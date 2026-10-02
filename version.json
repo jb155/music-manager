@@ -1,5 +1,5 @@
 {
-  "version": "1.7.4",
+  "version": "1.7.5",
   "release_date": "2026-10-02",
-  "notes": "Add 1-Click Missing Tracks Finder & Batch Downloader pipeline with automated high-resolution album cover art retrieval and Beets library embedding."
+  "notes": "Streamline Missing Tracks Finder into a unified single-button workflow: 1-click scan, batch download, library import, and high-res album art embedding."
 }

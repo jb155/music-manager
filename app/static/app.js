@@ -417,41 +417,42 @@ async function loadMissingTracks() {
         const data = await res.json();
         if (data.tracks && data.tracks.length > 0) {
             missingTracksData = data.tracks;
-            document.getElementById("missing-badge").textContent = data.count || 0;
-            document.getElementById("missing-count-text").textContent = `${data.count || 0} missing tracks cataloged (cached)`;
-            document.getElementById("btn-download-all-missing").disabled = data.count === 0;
+            const badge = document.getElementById("missing-badge");
+            if (badge) badge.textContent = data.count || 0;
+            const countText = document.getElementById("missing-count-text");
+            if (countText) countText.textContent = `${data.count || 0} missing tracks cataloged`;
             renderMissingTable(missingTracksData);
         } else {
-            tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted" style="padding: 32px;">
-                <i class="fa-solid fa-magnifying-glass-chart" style="font-size: 2rem; margin-bottom: 12px; display: block; opacity: 0.5;"></i>
-                No cached missing tracks found. Click <strong>Scan Library</strong> to scan your catalog.<br>
-                <small style="opacity: 0.6;">Uses MusicBrainz release diffs to pinpoint exact missing songs.</small>
+            tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted" style="padding: 36px 16px;">
+                <i class="fa-solid fa-wand-magic-sparkles" style="font-size: 2.2rem; margin-bottom: 14px; display: block; opacity: 0.6; color: var(--primary);"></i>
+                No missing tracks currently cataloged.<br>
+                Click <strong>Find All Missing & Download (with Album Art)</strong> above to find and download missing tracks in one click.
             </td></tr>`;
         }
     } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">Error loading missing tracks.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">Error loading missing tracks.</td></tr>`;
     }
 }
 
-async function runMissingScan(refresh = true) {
+async function runMissingScan(refresh = true, depth = 50) {
     const tbody = document.getElementById("missing-tbody");
-    const depth = document.getElementById("missing-scan-depth") ? parseInt(document.getElementById("missing-scan-depth").value) || 50 : 50;
 
-    tbody.innerHTML = `<tr><td colspan="5" class="text-center"><div class="spinner" style="margin: 10px auto;"></div> Scanning top ${depth} incomplete albums via MusicBrainz... this takes ~15-20s.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center"><div class="spinner" style="margin: 10px auto;"></div> Scanning library for incomplete albums via MusicBrainz... this takes ~15-20s.</td></tr>`;
 
     try {
         const res = await fetch(`/api/missing?refresh=${refresh}&max_albums=${depth}`);
         const data = await res.json();
         missingTracksData = data.tracks || [];
 
-        document.getElementById("missing-badge").textContent = data.count || 0;
-        document.getElementById("missing-count-text").textContent = `${data.count || 0} missing tracks found`;
-        document.getElementById("btn-download-all-missing").disabled = data.count === 0;
+        const badge = document.getElementById("missing-badge");
+        if (badge) badge.textContent = data.count || 0;
+        const countText = document.getElementById("missing-count-text");
+        if (countText) countText.textContent = `${data.count || 0} missing tracks found`;
 
         renderMissingTable(missingTracksData);
         showToast(`Scan complete: found ${data.count || 0} missing tracks!`, "success");
     } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">Error scanning missing tracks.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">Error scanning missing tracks.</td></tr>`;
         showToast("Error scanning missing tracks", "error");
     }
 }
@@ -514,8 +515,7 @@ async function downloadMissingSingleTrack(idx, query) {
 const btnFindAndDownloadAll = document.getElementById("btn-find-and-download-all");
 if (btnFindAndDownloadAll) {
     btnFindAndDownloadAll.addEventListener("click", async () => {
-        const depth = document.getElementById("missing-scan-depth") ? parseInt(document.getElementById("missing-scan-depth").value) || 50 : 50;
-        if (!confirm(`Run 1-Click Pipeline?\n\n1. Scan library for incomplete albums (depth: top ${depth})\n2. Download all missing tracks sequentially\n3. Auto-import into library with Beets\n4. Download & embed high-res album cover art`)) return;
+        if (!confirm("Find all missing tracks, download them, import to library, and fetch high-res album cover art?")) return;
 
         try {
             btnFindAndDownloadAll.disabled = true;
@@ -525,7 +525,7 @@ if (btnFindAndDownloadAll) {
             const res = await fetch("/api/missing/find-and-download", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ max_albums: depth, auto_import: true, fetch_art: true })
+                body: JSON.stringify({ max_albums: 50, auto_import: true, fetch_art: true })
             });
 
             if (res.ok) {
@@ -573,14 +573,6 @@ if (btnFindAndDownloadAll) {
     });
 }
 
-const btnScanMissing = document.getElementById("btn-scan-missing");
-if (btnScanMissing) {
-    btnScanMissing.addEventListener("click", async () => {
-        missingTracksData = [];
-        await runMissingScan(true);
-    });
-}
-
 const missingSearchInput = document.getElementById("missing-search");
 if (missingSearchInput) {
     missingSearchInput.addEventListener("input", (e) => {
@@ -589,41 +581,6 @@ if (missingSearchInput) {
             normalizeSearchText(`${t.artist} ${t.album || ""} ${t.title}`).includes(term)
         );
         renderMissingTable(filtered);
-    });
-}
-
-const btnDownloadAllMissing = document.getElementById("btn-download-all-missing");
-if (btnDownloadAllMissing) {
-    btnDownloadAllMissing.addEventListener("click", async () => {
-        if (missingTracksData.length === 0) {
-            showToast("No missing tracks loaded. Please scan first.", "error");
-            return;
-        }
-        if (!confirm(`Download all ${missingTracksData.length} missing tracks sequentially (with album art)?`)) return;
-
-        const trackItems = missingTracksData.map(t => ({
-            query: t.query,
-            album: t.album,
-            artist: t.artist,
-            title: t.title
-        })).filter(t => Boolean(t.query));
-
-        try {
-            const res = await fetch("/api/missing/download", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ tracks: trackItems, auto_import: true, fetch_art: true })
-            });
-            if (res.ok) {
-                showToast(`Started batch download of ${trackItems.length} missing tracks (with album art)`, "success");
-                document.querySelector('[data-tab="terminal"]').click();
-            } else {
-                const err = await res.json();
-                showToast(err.detail || "Error starting missing download", "error");
-            }
-        } catch (e) {
-            showToast("Network error", "error");
-        }
     });
 }
 
