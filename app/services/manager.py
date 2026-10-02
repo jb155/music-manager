@@ -110,21 +110,116 @@ def normalize_music_title(title: str) -> str:
     """Normalize track title for reliable library matching."""
     if not title:
         return ""
+    is_live = is_live_recording(title=title)
     s = title.strip()
-    # Strip remasters, live, deluxe, anniversary, radio edit, etc. with dash or in brackets/parentheses
+    # Strip remasters, deluxe, anniversary, radio edit, etc. with dash or in brackets/parentheses
     s = re.sub(r'(\s*[-–—]\s*(?:digital\s*)?(?:[0-9]{4}\s*)?remaster(?:ed)?(?:\s*version)?|\s*[\(\[][^)]*remaster[^)]*[\)\]]|\s*[\(\[][^)]*deluxe[^)]*[\)\]]|\s*[\(\[][^)]*expanded[^)]*[\)\]]|\s*[\(\[][^)]*anniversary[^)]*[\)\]]|\s*[\(\[][^)]*single[^)]*[\)\]]|\s*[\(\[][^)]*version[^)]*[\)\]]|\s*[\(\[][^)]*edit[^)]*[\)\]])', '', s, flags=re.IGNORECASE)
     # Remove non-alphanumeric characters and lowercase
     s = re.sub(r'[^a-zA-Z0-9\s]', '', s.lower())
-    return re.sub(r'\s+', ' ', s).strip()
+    norm = re.sub(r'\s+', ' ', s).strip()
+    if is_live and "live" not in norm:
+        norm = f"{norm} live"
+    return norm
 
 def normalize_album_name(album: str) -> str:
     """Normalize album name for reliable discography and completion matching."""
     if not album:
         return ""
+    is_live = is_live_recording(album=album)
     s = album.strip()
     s = re.sub(r'(\s*[-–—]\s*(?:digital\s*)?(?:[0-9]{4}\s*)?remaster(?:ed)?(?:\s*version)?|\s*[-–—]\s*Single|\s*[-–—]\s*EP|\s*[\(\[][^)]*remaster[^)]*[\)\]]|\s*[\(\[][^)]*deluxe[^)]*[\)\]]|\s*[\(\[][^)]*expanded[^)]*[\)\]]|\s*[\(\[][^)]*anniversary[^)]*[\)\]]|\s*[\(\[][^)]*single[^)]*[\)\]]|\s*[\(\[][^)]*ep[^)]*[\)\]]|\s*[\(\[][^)]*edition[^)]*[\)\]])', '', s, flags=re.IGNORECASE)
     s = re.sub(r'[^a-zA-Z0-9\s]', '', s.lower())
-    return re.sub(r'\s+', ' ', s).strip()
+    norm = re.sub(r'\s+', ' ', s).strip()
+    if is_live and "live" not in norm:
+        norm = f"{norm} live"
+    return norm
+
+def is_live_recording(title: str = "", album: str = "", comments: str = "", disambig: str = "", path: str = "", length: float = 0.0) -> bool:
+    """
+    Determine if a track or album represents a Live recording vs a Studio recording.
+    Carefully avoids false positives for titles where 'live' is part of the song name
+    (e.g., 'Live and Let Die', 'Live Forever', 'Live to Tell', 'Live Wire', 'A Life That We Can Live').
+    """
+    t_clean = (title or "").strip()
+    a_clean = (album or "").strip()
+    c_clean = (comments or "").strip()
+    d_clean = (disambig or "").strip()
+    p_clean = (path or "").strip()
+
+    # 1. Disambiguation, comments, or path indicators
+    for text in (d_clean, c_clean):
+        if text and re.search(r'\b(live|in concert|recorded live|unplugged|full concert)\b', text, re.I):
+            if not re.search(r'\blive\s+aid\b', text, re.I):
+                return True
+
+    if p_clean and re.search(r'[\\/][^\\/]*\b(live|in concert|recorded live|unplugged)\b[^\\/]*[\\/]', p_clean, re.I):
+        return True
+
+    # 2. Album title checks
+    if a_clean:
+        if re.search(r'[\(\[\{].*?\b(live|in concert|recorded live|unplugged)\b.*?[\)\]\}]', a_clean, re.I):
+            if not re.search(r'\b(live\s+aid|life\s+that\s+we\s+can\s+live)\b', a_clean, re.I):
+                return True
+        if re.search(r'[-:\u2013\u2014/|]\s*.*\b(live|in concert|recorded live|unplugged)\b', a_clean, re.I):
+            return True
+        if re.search(r'^(?:recorded\s+)?live\s+(?:at|in|from|on)\b', a_clean, re.I):
+            return True
+        if re.search(r'\b(in concert|unplugged|live tour|live album|full concert)\b', a_clean, re.I):
+            return True
+        if re.search(r'\b(live\s+\d{4}|\d{4}\s+live)\b', a_clean, re.I):
+            return True
+        if re.search(r'\b[-:\u2013\u2014\s]+live$', a_clean, re.I) and not re.search(r'\b(to|we|born to|how to|long)\s+live$', a_clean, re.I):
+            return True
+
+    # 3. Track title checks
+    if t_clean:
+        m = re.search(r'[\(\[\{]([^\)\]\}]*)[\)\]\}]', t_clean)
+        if m:
+            inside = m.group(1).strip()
+            if not re.search(r'\b(can\s+live|we\s+live|to\s+live|live\s+aid)\b', inside, re.I):
+                if re.search(r'^(?:recorded\s+)?live\b', inside, re.I):
+                    return True
+                if re.search(r'\b(?:recorded\s+)?live$', inside, re.I):
+                    return True
+                if re.search(r'\blive\s+(?:at|in|from|on|version|acoustic|session)\b', inside, re.I):
+                    return True
+                if re.search(r'\b(in concert|unplugged|acoustic live|full concert)\b', inside, re.I):
+                    return True
+                if re.search(r'\bbbc\s+radio.*?\blive\b', inside, re.I):
+                    return True
+
+        if re.search(r'[-:\u2013\u2014/|]\s*(?:.*?\b)?(?:recorded\s+)?live\b', t_clean, re.I):
+            if not re.search(r'\b(live\s+aid)\b', t_clean, re.I):
+                return True
+        if re.search(r'[-:\u2013\u2014/|]\s*(?:in concert|unplugged|acoustic live|full concert)\b', t_clean, re.I):
+            return True
+        if re.search(r'^(?:recorded\s+)?live\s+(?:at|in|from|on)\b', t_clean, re.I):
+            return True
+        if re.search(r'^(?:mtv\s+)?unplugged\b', t_clean, re.I):
+            return True
+        if re.search(r'\b(in concert|acoustic live|full concert)\b', t_clean, re.I):
+            return True
+        if re.search(r'[-:\u2013\u2014/|]\s*live$', t_clean, re.I):
+            return True
+
+    # 4. Long video/concert duration disparity (>1800s or 30 mins)
+    if length > 1800:
+        return True
+
+    return False
+
+def extract_live_qualifier(title: str) -> str:
+    """Extract location, date, or concert name from a live title to differentiate performances."""
+    if not title:
+        return ""
+    m = re.search(r'[\(\[\{]\s*(?:recorded\s+)?live(?:\s+(?:at|in|from|on)\s+([^,\]\)\};]+))?[^\)\]\}]*[\)\]\}]', title, re.I)
+    if m and m.group(1):
+        return re.sub(r'\W+', '', m.group(1).lower())
+    m2 = re.search(r'[-:\u2013\u2014/|]\s*(?:recorded\s+)?live(?:\s+(?:at|in|from|on)\s+([^,;\-]+))?', title, re.I)
+    if m2 and m2.group(1):
+        return re.sub(r'\W+', '', m2.group(1).lower())
+    m_yr = re.search(r'\b(19\d\d|20\d\d)\b', title)
+    return m_yr.group(1) if m_yr else ""
 
 class MusicManagerService:
     def get_db_connection(self) -> sqlite3.Connection:
@@ -1250,11 +1345,34 @@ paths:
             logger.error(f"Error getting library stats for {artist_name}: {e}")
             return {"total_tracks": 0, "complete_albums": 0, "albums_map": {}}
 
+    @classmethod
+    def is_live_recording(cls, title: str = "", album: str = "", comments: str = "", disambig: str = "", path: str = "", length: float = 0.0) -> bool:
+        return is_live_recording(title=title, album=album, comments=comments, disambig=disambig, path=path, length=length)
+
+    @classmethod
+    def is_live_item(cls, it: Dict[str, Any]) -> bool:
+        if not it:
+            return False
+        rpath = it.get('clean_path') or it.get('path') or ''
+        p = rpath.decode('utf-8', 'replace') if isinstance(rpath, bytes) else str(rpath)
+        return is_live_recording(
+            title=it.get('title') or '',
+            album=it.get('album') or '',
+            comments=it.get('comments') or '',
+            disambig=it.get('trackdisambig') or it.get('albumdisambig') or it.get('albumtypes') or '',
+            path=p,
+            length=float(it.get('length') or 0.0)
+        )
+
+    @classmethod
+    def extract_live_qualifier(cls, title: str) -> str:
+        return extract_live_qualifier(title)
+
     def is_song_in_library(self, artist: str, title: str, album: Optional[str] = None) -> bool:
         """Check if a specific song title by an artist already exists in the Beets library.
         If album is provided, checks if the song exists specifically within that album (or equivalent normalized album).
         If album is None, checks across the entire library.
-        """
+        Preserves Live vs Studio distinction so downloading a Live version is never blocked by a Studio version."""
         db_path = os.path.join(self.beets_dir, "library.db")
         if not os.path.exists(db_path) or not artist or not title:
             return False
@@ -1265,6 +1383,7 @@ paths:
 
         norm_album = normalize_album_name(album) if album else None
         norm_art = normalize_search_text(artist.strip())
+        query_is_live = is_live_recording(title=title, album=album or "")
 
         try:
             conn = self.get_db_connection()
@@ -1280,12 +1399,14 @@ paths:
                 conn.close()
 
                 for (t, a) in rows:
+                    if is_live_recording(title=t, album=a or "") != query_is_live:
+                        continue
                     if normalize_music_title(t) == norm_title and normalize_album_name(a or "") == norm_album:
                         return True
                 return False
             else:
                 c.execute("""
-                    SELECT items.title
+                    SELECT items.title, items.album
                     FROM items
                     WHERE LOWER(items.artist) = LOWER(?) OR LOWER(items.albumartist) = LOWER(?)
                        OR mm_norm(items.artist) = ? OR mm_norm(items.albumartist) = ?
@@ -1293,7 +1414,9 @@ paths:
                 rows = c.fetchall()
                 conn.close()
 
-                for (t,) in rows:
+                for (t, a) in rows:
+                    if is_live_recording(title=t, album=a or "") != query_is_live:
+                        continue
                     if normalize_music_title(t) == norm_title:
                         return True
 
@@ -1408,8 +1531,10 @@ paths:
 
         is_url = query.strip().startswith("http://") or query.strip().startswith("https://")
         clean_target = clean_search_query(query)
-        target = query.strip() if is_url else f"ytsearch1:{clean_target}"
-        log_target = query if is_url else f"YouTube search for '{clean_target}'"
+        is_live_q = is_live_recording(title=query)
+        yt_search_query = clean_target if (is_url or is_live_q or "audio" in clean_target.lower()) else f"{clean_target} audio"
+        target = query.strip() if is_url else f"ytsearch1:{yt_search_query}"
+        log_target = query if is_url else f"YouTube search for '{yt_search_query}'"
         await self.broadcast_log(f"\n[YT-DLP FALLBACK] Downloading via yt-dlp: {log_target}\n")
         cmd = [
             "yt-dlp", "-x",
@@ -1461,7 +1586,9 @@ paths:
                 else:
                     await self.broadcast_log(f"--- Download Attempt {attempt} of {max_retries} for: '{current_query}' ---\n")
 
-            spotdl_cmd = ["spotdl", "download", current_query, "--audio", "youtube-music", "youtube", "--dont-filter-results"]
+            spotdl_cmd = ["spotdl", "download", current_query, "--audio", "youtube-music", "youtube"]
+            if attempt == max_retries or is_live_recording(title=current_query, album=target_album or ""):
+                spotdl_cmd.append("--dont-filter-results")
 
             code = await self._run_command(spotdl_cmd, cwd=self.new_music_dir, timeout=300)
             if self._abort_requested:
@@ -3600,20 +3727,38 @@ paths:
         score += (it.get('id', 0) / 1000000.0)
         return score
 
-    @staticmethod
-    def _normalize_title_for_match(t: str) -> str:
+    @classmethod
+    def _normalize_title_for_match(cls, t: str) -> str:
         if not t:
             return ""
+        is_live = cls.is_live_recording(title=t)
         t = t.replace("’", "'").replace("‘", "'").replace('“', '"').replace('”', '"').replace('‐', '-').replace('–', '-').replace('—', '-')
         t = re.sub(r'[\(\[\{].*?[\)\]\}]', '', t)
         t = re.sub(r'\bfeat\.?.*$', '', t, flags=re.IGNORECASE)
         t = re.sub(r'[-–—].*$', '', t)
-        t = re.sub(r'[^a-zA-Z0-9]', '', t.lower())
-        return t.strip()
+        t = re.sub(r'[^a-zA-Z0-9]', '', t.lower()).strip()
+        if is_live:
+            t = f"{t}live"
+        return t
 
     @classmethod
-    def _track_titles_match(cls, t1: str, t2: str) -> bool:
+    def _track_titles_match(cls, t1: str, t2: str, check_live: bool = True) -> bool:
         from difflib import SequenceMatcher
+        if not t1 or not t2:
+            return False
+        if check_live:
+            l1 = cls.is_live_recording(title=t1)
+            l2 = cls.is_live_recording(title=t2)
+            if l1 != l2:
+                # Studio and Live are completely different recordings - NEVER consider them duplicates!
+                return False
+            if l1 and l2:
+                # Both are live: ensure they are not from different venues/concerts
+                q1 = cls.extract_live_qualifier(t1)
+                q2 = cls.extract_live_qualifier(t2)
+                if q1 and q2 and q1 != q2:
+                    return False
+
         n1 = cls._normalize_title_for_match(t1)
         n2 = cls._normalize_title_for_match(t2)
         if not n1 or not n2:
@@ -3720,6 +3865,17 @@ paths:
                         it_a = alb_items[i]
                         it_b = alb_items[j]
 
+                        # Rule: If one track is Live and the other is Studio, NEVER treat them as duplicates! Keep both!
+                        is_live_a = self.is_live_item(it_a)
+                        is_live_b = self.is_live_item(it_b)
+                        if is_live_a != is_live_b:
+                            continue
+                        if is_live_a and is_live_b:
+                            qa = self.extract_live_qualifier(it_a.get('title') or '')
+                            qb = self.extract_live_qualifier(it_b.get('title') or '')
+                            if qa and qb and qa != qb:
+                                continue
+
                         # Same MusicBrainz Track ID
                         mb_a = it_a.get('mb_trackid')
                         mb_b = it_b.get('mb_trackid')
@@ -3758,6 +3914,8 @@ paths:
                 albs = [x for x in art_items if x.get('album_id') and (x.get('album') or '').strip().lower() not in ('non-album', 'unknown album', '')]
                 for na in non_albs:
                     for a in albs:
+                        if self.is_live_item(na) != self.is_live_item(a):
+                            continue
                         len_na = na.get('length') or 0
                         len_a = a.get('length') or 0
                         if self._track_titles_match(na.get('title'), a.get('title')) and (abs(len_na - len_a) <= 8.0 or len_na == 0 or len_a == 0):
@@ -3810,6 +3968,73 @@ paths:
             if to_update_genre:
                 c.executemany("UPDATE items SET genre = ? WHERE id = ?", to_update_genre)
 
+            # 6b. Studio vs Live Separation: Protect studio albums from infiltrated live/concert recordings
+            # If an album is a studio album (not a live album, OST, or compilation),
+            # any live tracks or anomalous concert recordings within it are cleanly separated
+            # into a distinct Live album (e.g. "The Wall (Live)") so the studio album remains purely studio
+            # and the live version is preserved.
+            c.execute("""
+                SELECT DISTINCT a.id, a.albumartist, a.album, a.year, a.genre, a.artpath
+                FROM albums a
+                WHERE a.album != ''
+            """)
+            album_records = {r[0]: {'id': r[0], 'artist': r[1], 'album': r[2], 'year': r[3], 'genre': r[4], 'artpath': r[5]} for r in c.fetchall()}
+
+            c.execute("SELECT id, album_id, title, album, length, comments, path FROM items WHERE album_id IS NOT NULL")
+            cur_items_by_album = defaultdict(list)
+            for r in c.fetchall():
+                cur_items_by_album[r[1]].append({
+                    'id': r[0], 'album_id': r[1], 'title': r[2], 'album': r[3], 'length': r[4] or 0, 'comments': r[5] or '', 'path': r[6]
+                })
+
+            for alb_id, t_list in cur_items_by_album.items():
+                rec = album_records.get(alb_id)
+                if not rec:
+                    continue
+                alb_name = rec['album']
+                if self.is_live_recording(album=alb_name):
+                    continue
+                if re.search(r'\b(?:soundtrack|ost|greatest\s+hits|best\s+of|anthology)\b', alb_name, re.I):
+                    continue
+
+                live_in_album = [it for it in t_list if self.is_live_item(it)]
+                studio_in_album = [it for it in t_list if not self.is_live_item(it)]
+
+                if live_in_album and len(studio_in_album) >= len(live_in_album):
+                    live_alb_name = f"{alb_name} (Live)"
+                    art_name = rec['artist']
+                    c.execute("SELECT id FROM albums WHERE LOWER(albumartist) = LOWER(?) AND LOWER(album) = LOWER(?)", (art_name, live_alb_name))
+                    existing = c.fetchone()
+                    if existing:
+                        live_alb_id = existing[0]
+                    else:
+                        c.execute(
+                            "INSERT INTO albums (albumartist, album, year, genre, artpath) VALUES (?, ?, ?, ?, ?)",
+                            (art_name, live_alb_name, rec['year'], rec['genre'], rec['artpath'])
+                        )
+                        live_alb_id = c.lastrowid
+
+                    for lit in live_in_album:
+                        raw_p = lit['path']
+                        old_p = raw_p.decode('utf-8', 'replace') if isinstance(raw_p, bytes) else str(raw_p)
+                        full_old_p = old_p if old_p.startswith('/') else os.path.join(self.music_dir, old_p)
+                        try:
+                            parent_dir = os.path.dirname(full_old_p)
+                            artist_dir = os.path.dirname(parent_dir)
+                            fname = os.path.basename(full_old_p)
+                            new_dir = os.path.join(artist_dir, f"{os.path.basename(parent_dir)} (Live)")
+                            os.makedirs(new_dir, exist_ok=True)
+                            new_full_p = os.path.join(new_dir, fname)
+                            if not os.path.exists(new_full_p) and os.path.exists(full_old_p):
+                                os.rename(full_old_p, new_full_p)
+                                rel_path = os.path.relpath(new_full_p, self.music_dir)
+                                new_db_path = rel_path.encode('utf-8') if isinstance(raw_p, bytes) else rel_path
+                                c.execute("UPDATE items SET path = ? WHERE id = ?", (new_db_path, lit['id']))
+                        except Exception as ex:
+                            logger.warning(f"Could not relocate live audio file {old_p}: {ex}")
+
+                        c.execute("UPDATE items SET album = ?, album_id = ? WHERE id = ?", (live_alb_name, live_alb_id, lit['id']))
+
             # 7. Artist Casing Normalization across items and albums
             c.execute("""
                 SELECT lower(COALESCE(NULLIF(albumartist, ''), artist)) as norm,
@@ -3859,6 +4084,23 @@ paths:
                 for r in records:
                     if r[0] == primary_id:
                         continue
+                    # Check if one album is Live and one is Studio!
+                    c.execute("SELECT id, title, length, comments, path FROM items WHERE album_id = ?", (r[0],))
+                    r_tracks = c.fetchall()
+                    r_is_live = any(self.is_live_recording(title=t[1], comments=t[3] or '', length=t[2] or 0) for t in r_tracks)
+
+                    c.execute("SELECT id, title, length, comments, path FROM items WHERE album_id = ?", (primary_id,))
+                    p_tracks = c.fetchall()
+                    p_is_live = any(self.is_live_recording(title=t[1], comments=t[3] or '', length=t[2] or 0) for t in p_tracks)
+
+                    if r_is_live != p_is_live:
+                        # Keep both distinct: rename the live album to (Live) so it is preserved separately
+                        live_target_id = r[0] if r_is_live else primary_id
+                        live_new_name = f"{r[2]} (Live)"
+                        c.execute("UPDATE albums SET album = ? WHERE id = ?", (live_new_name, live_target_id))
+                        c.execute("UPDATE items SET album = ? WHERE album_id = ?", (live_new_name, live_target_id))
+                        continue
+
                     if not artpath_to_use and r[4]:
                         artpath_to_use = r[4]
                     if (not year_to_use or year_to_use == 0) and r[3]:
@@ -4984,16 +5226,18 @@ paths:
             logger.error(f"Error in get_library_album_tracks for album {album_id}: {e}", exc_info=True)
             return {"album_id": album_id, "tracks": [], "error": str(e)}
 
-    @staticmethod
-    def get_base_album_name(album_name: str) -> str:
-        """Normalize an album name by stripping edition tags to identify the core release."""
+    @classmethod
+    def get_base_album_name(cls, album_name: str) -> str:
+        """Normalize an album name by stripping edition tags to identify the core release.
+        Preserves Live status so Live albums and Studio albums are NEVER merged or consolidated."""
         if not album_name:
             return ""
+        is_live = cls.is_live_recording(album=album_name)
         name = album_name.lower().strip()
         # Remove anything in brackets or parentheses that suggests edition/remaster/deluxe
         name = re.sub(r'\[.*?\]', '', name)
         name = re.sub(
-            r'\(.*?(?:deluxe|super\s+deluxe|remaster(?:ed)?|edition|version|bonus|expanded|collector(?:\'s)?|special|anniversary|soundtrack|ost|legacy|tour|international|unplugged|sessions?|live|mono|stereo|mix|explicit|clean).*?\)',
+            r'\(.*?(?:deluxe|super\s+deluxe|remaster(?:ed)?|edition|version|bonus|expanded|collector(?:\'s)?|special|anniversary|soundtrack|ost|legacy|international|sessions?|mono|stereo|mix|explicit|clean).*?\)',
             '',
             name,
             flags=re.IGNORECASE
@@ -5014,16 +5258,22 @@ paths:
         # Clean up any leftover punctuation or multiple spaces
         name = re.sub(r'[^\w\s]', ' ', name)
         name = re.sub(r'\s+', ' ', name).strip()
-        return name if name else album_name.lower().strip()
+        base = name if name else album_name.lower().strip()
+        if is_live and "live" not in base:
+            base = f"{base} live"
+        return base
 
-    @staticmethod
-    def normalize_track_title_for_dedup(title: str) -> str:
-        """Normalize track title by stripping version/remaster qualifiers."""
+    @classmethod
+    def normalize_track_title_for_dedup(cls, title: str) -> str:
+        """Normalize track title by stripping version/remaster qualifiers while preserving Live status."""
         if not title:
             return ""
+        is_live = cls.is_live_recording(title=title)
         t = title.lower().strip()
-        t = re.sub(r'\s*[\[\(](?:remaster|live|deluxe|version|mono|stereo|single|edit|mix)[^\]\)]*[\]\)]', '', t, flags=re.IGNORECASE)
+        t = re.sub(r'\s*[\[\(][^\]\)]*?(?:remaster|deluxe|version|mono|stereo|single|edit|mix)[^\]\)]*[\]\)]', '', t, flags=re.IGNORECASE)
         t = re.sub(r'[\W_]+', ' ', t).strip()
+        if is_live and "live" not in t:
+            t = f"{t} live"
         return t
 
     def analyze_album_consolidation(self, artist_name: Optional[str] = None) -> Dict[str, Any]:
@@ -5092,6 +5342,7 @@ paths:
                     primary_name, primary_tracks = sorted_editions[0]
                     primary_album_id = primary_tracks[0]['album_id']
                     primary_year = primary_tracks[0]['year'] or ""
+                    primary_is_live = self.is_live_recording(album=primary_name)
 
                     primary_titles = {}
                     for pt in primary_tracks:
@@ -5105,12 +5356,15 @@ paths:
                         uniques = []
                         for ot in other_tracks:
                             ont = self.normalize_track_title_for_dedup(ot['title'])
+                            ot_live = self.is_live_item(ot)
                             is_dup = False
                             if ont in primary_titles:
                                 pt = primary_titles[ont]
-                                len_diff = abs((ot['length'] or 0) - (pt['length'] or 0))
-                                if len_diff <= 15 or ot['length'] == 0:
-                                    is_dup = True
+                                pt_live = self.is_live_item(pt)
+                                if ot_live == pt_live:
+                                    len_diff = abs((ot['length'] or 0) - (pt['length'] or 0))
+                                    if len_diff <= 15 or ot['length'] == 0:
+                                        is_dup = True
 
                             p_str = self.resolve_audio_path(ot.get('path'))
                             sz = os.path.getsize(p_str) if (p_str and os.path.exists(p_str)) else 0
@@ -5122,7 +5376,8 @@ paths:
                                 'album': other_name,
                                 'duration': f"{int(ot.get('length') or 0) // 60}:{int(ot.get('length') or 0) % 60:02d}",
                                 'size_bytes': sz,
-                                'path': p_str
+                                'path': p_str,
+                                'is_live': ot_live
                             }
 
                             if is_dup:
@@ -5130,8 +5385,9 @@ paths:
                                 total_dups += 1
                                 total_bytes += sz
                             else:
-                                uniques.append(t_info)
-                                total_merges += 1
+                                if not ot_live or primary_is_live:
+                                    uniques.append(t_info)
+                                    total_merges += 1
 
                         other_editions.append({
                             'album': other_name,
