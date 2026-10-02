@@ -6,9 +6,14 @@ This document is the comprehensive master reference for the **Music Manager** pl
 
 ## 1. Physical Host & Storage Infrastructure
 
-### Host Environment
+### Host Environments & Server Policy
+> [!IMPORTANT]
+> **Environment Policy**:
+> - **`omv-jacques` (`192.168.178.100`)**: **Primary Development & Testing Host**. All active development, live feature testing, file syncing, and container restarts must occur exclusively on `omv-jacques`.
+> - **`omv-botha`**: **Production Host — DO NOT TOUCH / LEAVE ALONE**. Do not push deployments, restart containers, or modify `omv-botha` during development workflows unless the user explicitly requests it.
+
+- **Development Host**: `omv-jacques` (`192.168.178.100`)
 - **Operating System**: Debian Linux / OpenMediaVault (OMV)
-- **Host IP**: `192.168.178.100` (LAN)
 - **SSH Credentials**: `root` / `H@ppyF@mi!!y3332`
 - **Application Web Port**: `8085` (`http://192.168.178.100:8085`)
 
