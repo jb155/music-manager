@@ -1,5 +1,5 @@
 {
-  "version": "1.7.1",
-  "release_date": "2026-09-30",
-  "notes": "Fix AI provider model selection: added active Groq model auto-detection (GPT-OSS 120B/20B, Qwen), dynamic model dropdown per provider, per-provider configuration persistence, and automatic 404 model fallback."
+  "version": "1.7.2",
+  "release_date": "2026-10-02",
+  "notes": "Full library and playlist audio playback from Vault, queue auto-advance on song end, complete music controls suite (shuffle, loop off/all/one, prev/next, volume persistence), and distinct preview buttons with headphone icons for pre-download clips."
 }

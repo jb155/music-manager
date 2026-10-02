@@ -466,8 +466,8 @@ function renderMissingTable(tracks) {
     tbody.innerHTML = tracks.map((t, idx) => `
         <tr id="missing-row-${idx}" data-artist="${escapeAttr(t.artist)}" data-title="${escapeAttr(t.title)}">
             <td style="text-align: center;">
-                <button type="button" class="btn-track-play btn-missing-play" data-artist="${escapeAttr(t.artist)}" data-title="${escapeAttr(t.title)}" title="Play 30s Audio Preview">
-                    <i class="fa-solid fa-play"></i>
+                <button type="button" class="btn-track-preview btn-missing-play" data-artist="${escapeAttr(t.artist)}" data-title="${escapeAttr(t.title)}" title="Preview 30s Audio Clip">
+                    <i class="fa-solid fa-headphones"></i>
                 </button>
             </td>
             <td><strong>${escapeHtml(t.artist)}</strong></td>
@@ -1492,8 +1492,8 @@ function renderRecommendations(recs) {
             return `
                 <div class="rec-track-item" data-artist="${escapeAttr(item.artist)}" data-title="${escapeAttr(t.title)}">
                     <div class="track-title-wrap">
-                        <button type="button" class="btn-track-play btn-rec-play" data-artist="${escapeAttr(item.artist)}" data-title="${escapeAttr(t.title)}" title="Play 30s Audio Preview">
-                            <i class="fa-solid fa-play"></i>
+                        <button type="button" class="btn-track-preview btn-rec-play" data-artist="${escapeAttr(item.artist)}" data-title="${escapeAttr(t.title)}" title="Preview 30s Audio Clip">
+                            <i class="fa-solid fa-headphones"></i>
                         </button>
                         <span class="track-name">${escapeHtml(t.title)}</span>
                     </div>
@@ -2246,7 +2246,7 @@ function renderPlaylistPreview(tracks, title = null, summary = null) {
         <tr data-index="${i}" data-track-id="${t.id || ''}">
             <td class="text-muted" style="font-family: var(--font-mono); font-size: 12px;">${(i + 1).toString().padStart(2, "0")}</td>
             <td style="text-align: center;">
-                <button type="button" class="btn-track-play btn-playlist-play" data-index="${i}" data-track-id="${t.id || ''}" title="Play Preview">
+                <button type="button" class="btn-track-play btn-playlist-play" data-index="${i}" data-track-id="${t.id || ''}" data-artist="${escapeAttr(t.artist)}" data-title="${escapeAttr(t.title)}" title="Play Track">
                     <i class="fa-solid fa-play"></i>
                 </button>
             </td>
@@ -2279,7 +2279,11 @@ function renderPlaylistPreview(tracks, title = null, summary = null) {
             const idx = parseInt(btn.dataset.index);
             const track = tracks[idx];
             if (track && audioManager) {
-                audioManager.playTrack(track, tracks, idx, btn);
+                const queue = tracks.map(t => ({
+                    ...t,
+                    type: t.id ? "library" : "preview"
+                }));
+                audioManager.playTrack(queue[idx], queue, idx, btn);
             }
         });
     });
@@ -3412,7 +3416,7 @@ async function updateVennStats() {
 
 
 // ============================================================================
-// AUDIO MANAGER & PREVIEW CONTROLLER (v1.5.0)
+// AUDIO MANAGER & PLAYER CONTROLLER (v1.7.2)
 // ============================================================================
 class AudioManager {
     constructor() {
@@ -3423,7 +3427,16 @@ class AudioManager {
         this.isPlaying = false;
         this.isLoading = false;
         this.activeBtn = null;
-        this.prevVolume = 0.8;
+        this.isShuffle = false;
+        this.loopMode = "none"; // "none" | "all" | "one"
+        this.historyIndices = [];
+
+        // Restore user volume preference
+        const savedVol = localStorage.getItem("music_manager_volume");
+        this.volume = savedVol !== null ? parseFloat(savedVol) : 0.8;
+        if (isNaN(this.volume) || this.volume < 0 || this.volume > 1) this.volume = 0.8;
+        this.audio.volume = this.volume;
+        this.prevVolume = this.volume || 0.8;
 
         this.initDOM();
         this.bindEvents();
@@ -3436,24 +3449,32 @@ class AudioManager {
         this.artImg = document.getElementById("player-art");
         this.artPlaceholder = document.getElementById("player-art-placeholder");
         this.typeBadge = document.getElementById("player-type-badge");
-        this.btnPlay = document.getElementById("player-btn-play");
+        this.btnShuffle = document.getElementById("player-btn-shuffle");
         this.btnPrev = document.getElementById("player-btn-prev");
+        this.btnPlay = document.getElementById("player-btn-play");
         this.btnNext = document.getElementById("player-btn-next");
+        this.btnLoop = document.getElementById("player-btn-loop");
         this.scrubber = document.getElementById("player-scrubber");
         this.currentTimeEl = document.getElementById("player-current-time");
         this.durationEl = document.getElementById("player-duration");
         this.volumeSlider = document.getElementById("player-volume");
         this.volumeIcon = document.getElementById("player-volume-icon");
         this.btnClose = document.getElementById("player-btn-close");
+
+        if (this.volumeSlider) this.volumeSlider.value = this.volume;
+        this.updateVolumeIcon(this.volume);
+        this.updateControlButtonsUI();
     }
 
     bindEvents() {
         if (!this.barEl) return;
 
         // Player controls
-        this.btnPlay?.addEventListener("click", () => this.togglePlay());
+        this.btnShuffle?.addEventListener("click", () => this.toggleShuffle());
         this.btnPrev?.addEventListener("click", () => this.prevTrack());
-        this.btnNext?.addEventListener("click", () => this.nextTrack());
+        this.btnPlay?.addEventListener("click", () => this.togglePlay());
+        this.btnNext?.addEventListener("click", () => this.nextTrack(false));
+        this.btnLoop?.addEventListener("click", () => this.cycleLoopMode());
         this.btnClose?.addEventListener("click", () => this.close());
 
         // Scrubber
@@ -3472,18 +3493,23 @@ class AudioManager {
         // Volume
         this.volumeSlider?.addEventListener("input", (e) => {
             const val = parseFloat(e.target.value);
+            this.volume = val;
             this.audio.volume = val;
+            localStorage.setItem("music_manager_volume", String(val));
             this.updateVolumeIcon(val);
         });
         this.volumeIcon?.addEventListener("click", () => {
             if (this.audio.volume > 0) {
                 this.prevVolume = this.audio.volume;
                 this.audio.volume = 0;
+                this.volume = 0;
                 if (this.volumeSlider) this.volumeSlider.value = 0;
             } else {
-                this.audio.volume = this.prevVolume || 0.8;
-                if (this.volumeSlider) this.volumeSlider.value = this.audio.volume;
+                this.volume = this.prevVolume || 0.8;
+                this.audio.volume = this.volume;
+                if (this.volumeSlider) this.volumeSlider.value = this.volume;
             }
+            localStorage.setItem("music_manager_volume", String(this.audio.volume));
             this.updateVolumeIcon(this.audio.volume);
         });
 
@@ -3495,6 +3521,12 @@ class AudioManager {
             if (this.barEl) this.barEl.style.setProperty("--mobile-progress", `${pct}%`);
             if (this.currentTimeEl) this.currentTimeEl.textContent = this.formatTime(this.audio.currentTime);
             if (this.durationEl) this.durationEl.textContent = this.formatTime(this.audio.duration);
+        });
+
+        this.audio.addEventListener("loadedmetadata", () => {
+            if (this.audio.duration && !isNaN(this.audio.duration)) {
+                if (this.durationEl) this.durationEl.textContent = this.formatTime(this.audio.duration);
+            }
         });
 
         this.audio.addEventListener("play", () => {
@@ -3511,9 +3543,7 @@ class AudioManager {
         this.audio.addEventListener("ended", () => {
             this.isPlaying = false;
             this.updatePlayStateUI();
-            if (this.queue && this.queue.length > 0 && this.queueIndex < this.queue.length - 1) {
-                this.nextTrack();
-            }
+            this.nextTrack(true);
         });
 
         this.audio.addEventListener("error", (e) => {
@@ -3521,8 +3551,57 @@ class AudioManager {
             this.isPlaying = false;
             this.updatePlayStateUI();
             console.error("Audio playback error:", e);
-            showToast("Error streaming audio preview", "error");
+            showToast("Error streaming audio track", "error");
         });
+    }
+
+    toggleShuffle() {
+        this.isShuffle = !this.isShuffle;
+        this.historyIndices = [];
+        this.updateControlButtonsUI();
+        showToast(this.isShuffle ? "Shuffle enabled" : "Shuffle disabled", "info");
+    }
+
+    cycleLoopMode() {
+        if (this.loopMode === "none") {
+            this.loopMode = "all";
+            showToast("Repeat All enabled", "info");
+        } else if (this.loopMode === "all") {
+            this.loopMode = "one";
+            showToast("Repeat Current Song enabled", "info");
+        } else {
+            this.loopMode = "none";
+            showToast("Repeat disabled", "info");
+        }
+        this.updateControlButtonsUI();
+    }
+
+    updateControlButtonsUI() {
+        if (this.btnShuffle) {
+            if (this.isShuffle) {
+                this.btnShuffle.classList.add("active");
+                this.btnShuffle.title = "Shuffle: On";
+            } else {
+                this.btnShuffle.classList.remove("active");
+                this.btnShuffle.title = "Shuffle: Off";
+            }
+        }
+
+        if (this.btnLoop) {
+            this.btnLoop.classList.remove("active", "loop-one");
+            if (this.loopMode === "all") {
+                this.btnLoop.classList.add("active");
+                this.btnLoop.title = "Repeat: All Tracks";
+                this.btnLoop.innerHTML = '<i class="fa-solid fa-repeat"></i>';
+            } else if (this.loopMode === "one") {
+                this.btnLoop.classList.add("active", "loop-one");
+                this.btnLoop.title = "Repeat: Current Track";
+                this.btnLoop.innerHTML = '<i class="fa-solid fa-repeat"></i><span class="player-loop-badge">1</span>';
+            } else {
+                this.btnLoop.title = "Repeat: Off";
+                this.btnLoop.innerHTML = '<i class="fa-solid fa-repeat"></i>';
+            }
+        }
     }
 
     updateVolumeIcon(vol) {
@@ -3544,15 +3623,33 @@ class AudioManager {
     }
 
     async playTrack(track, queue = null, index = null, triggerBtn = null) {
-        if (queue) {
+        if (queue && Array.isArray(queue) && queue.length > 0) {
             this.queue = queue;
-            this.queueIndex = index !== null ? index : 0;
+            if (index !== null && index >= 0 && index < queue.length) {
+                this.queueIndex = index;
+            } else {
+                this.queueIndex = this.queue.findIndex(t => (t.id && track.id && String(t.id) === String(track.id)) || (t.title === track.title && t.artist === track.artist));
+                if (this.queueIndex === -1) this.queueIndex = 0;
+            }
+        } else if (!this.queue || this.queue.length === 0) {
+            this.queue = [track];
+            this.queueIndex = 0;
+        } else {
+            const matchIdx = this.queue.findIndex(t => (t.id && track.id && String(t.id) === String(track.id)) || (t.title === track.title && t.artist === track.artist));
+            if (matchIdx !== -1) {
+                this.queueIndex = matchIdx;
+            } else {
+                this.queue = [track];
+                this.queueIndex = 0;
+                this.historyIndices = [];
+            }
         }
 
         // Check if toggling the currently playing track
         if (this.currentTrack && (
             (track.id && String(this.currentTrack.id) === String(track.id)) ||
             (track.path && this.currentTrack.path === track.path) ||
+            (track.preview_url && this.currentTrack.preview_url === track.preview_url) ||
             (track.artist && track.title && this.currentTrack.artist === track.artist && this.currentTrack.title === track.title)
         )) {
             this.togglePlay();
@@ -3568,7 +3665,8 @@ class AudioManager {
         try {
             let audioUrl = "";
             if (track.id) {
-                audioUrl = `/api/audio/preview/${track.id}`;
+                // Full song streaming from Library Vault
+                audioUrl = `/api/audio/stream/${track.id}`;
             } else if (track.preview_url) {
                 audioUrl = track.preview_url;
             } else if (track.artist && track.title) {
@@ -3576,10 +3674,10 @@ class AudioManager {
                 const res = await fetch(`/api/audio/preview-query?artist=${encodeURIComponent(track.artist)}&title=${encodeURIComponent(track.title)}`);
                 const data = await res.json();
                 if (!data.found || !data.preview_url) {
-                    throw new Error("No preview available for this track");
+                    throw new Error("No audio preview available for this track");
                 }
                 audioUrl = data.preview_url;
-                if (data.artwork_url) {
+                if (data.artwork_url && !track.artwork_url) {
                     track.artwork_url = data.artwork_url;
                     this.setArtwork(data.artwork_url);
                 }
@@ -3590,7 +3688,7 @@ class AudioManager {
                 audioUrl = `/api/audio/preview-staging?file=${encodeURIComponent(track.path)}`;
             }
 
-            if (!audioUrl) throw new Error("Could not resolve audio preview URL");
+            if (!audioUrl) throw new Error("Could not resolve audio streaming source");
 
             this.audio.src = audioUrl;
             this.audio.load();
@@ -3599,12 +3697,12 @@ class AudioManager {
             this.isLoading = false;
             this.isPlaying = false;
             this.updatePlayStateUI();
-            showToast(err.message || "Failed to play preview", "error");
+            showToast(err.message || "Failed to stream audio", "error");
         }
     }
 
     async playQuery(artist, title, triggerBtn = null) {
-        await this.playTrack({ artist, title, title_display: title }, null, null, triggerBtn);
+        await this.playTrack({ artist, title, title_display: title, type: "preview" }, null, null, triggerBtn);
     }
 
     async playStaging(path, name, triggerBtn = null) {
@@ -3620,23 +3718,95 @@ class AudioManager {
         }
     }
 
-    nextTrack() {
+    nextTrack(isAutoAdvance = false) {
         if (!this.queue || this.queue.length === 0) return;
-        if (this.queueIndex < this.queue.length - 1) {
-            this.queueIndex++;
-            this.playTrack(this.queue[this.queueIndex], this.queue, this.queueIndex);
+
+        // If repeat one is on and track ended automatically
+        if (isAutoAdvance && this.loopMode === "one") {
+            this.audio.currentTime = 0;
+            this.audio.play().catch(e => console.error("Replay error:", e));
+            return;
+        }
+
+        let nextIdx = -1;
+
+        if (this.isShuffle && this.queue.length > 1) {
+            const unplayed = [];
+            for (let i = 0; i < this.queue.length; i++) {
+                if (i !== this.queueIndex && !this.historyIndices.includes(i)) {
+                    unplayed.push(i);
+                }
+            }
+            if (unplayed.length > 0) {
+                nextIdx = unplayed[Math.floor(Math.random() * unplayed.length)];
+            } else {
+                if (this.loopMode === "all" || !isAutoAdvance) {
+                    this.historyIndices = [];
+                    const candidates = [];
+                    for (let i = 0; i < this.queue.length; i++) {
+                        if (i !== this.queueIndex) candidates.push(i);
+                    }
+                    nextIdx = candidates.length > 0 ? candidates[Math.floor(Math.random() * candidates.length)] : 0;
+                } else {
+                    this.isPlaying = false;
+                    this.updatePlayStateUI();
+                    showToast("Reached end of playlist", "info");
+                    return;
+                }
+            }
         } else {
-            showToast("Reached end of playlist", "info");
+            if (this.queueIndex < this.queue.length - 1) {
+                nextIdx = this.queueIndex + 1;
+            } else {
+                if (this.loopMode === "all") {
+                    nextIdx = 0;
+                } else {
+                    this.isPlaying = false;
+                    this.updatePlayStateUI();
+                    if (!isAutoAdvance) {
+                        showToast("Reached end of playlist", "info");
+                    }
+                    return;
+                }
+            }
+        }
+
+        if (nextIdx >= 0 && nextIdx < this.queue.length) {
+            if (this.queueIndex >= 0) {
+                this.historyIndices.push(this.queueIndex);
+                if (this.historyIndices.length > 50) this.historyIndices.shift();
+            }
+            this.queueIndex = nextIdx;
+            const targetTrack = this.queue[this.queueIndex];
+            this.playTrack(targetTrack, this.queue, this.queueIndex);
         }
     }
 
     prevTrack() {
         if (!this.queue || this.queue.length === 0) return;
+
         if (this.audio.currentTime > 3) {
             this.audio.currentTime = 0;
+            return;
+        }
+
+        let prevIdx = -1;
+
+        if (this.isShuffle && this.historyIndices.length > 0) {
+            prevIdx = this.historyIndices.pop();
         } else if (this.queueIndex > 0) {
-            this.queueIndex--;
-            this.playTrack(this.queue[this.queueIndex], this.queue, this.queueIndex);
+            prevIdx = this.queueIndex - 1;
+        } else if (this.loopMode === "all" && this.queue.length > 1) {
+            prevIdx = this.queue.length - 1;
+        } else {
+            this.audio.currentTime = 0;
+            return;
+        }
+
+        if (prevIdx >= 0 && prevIdx < this.queue.length) {
+            this.queueIndex = prevIdx;
+            const targetTrack = this.queue[this.queueIndex];
+            this.playTrack(targetTrack, this.queue, this.queueIndex);
         }
     }
 
@@ -3648,6 +3818,7 @@ class AudioManager {
         this.currentTrack = null;
         this.queue = [];
         this.queueIndex = -1;
+        this.historyIndices = [];
         if (this.barEl) this.barEl.style.display = "none";
         this.updatePlayStateUI();
     }
@@ -3659,10 +3830,28 @@ class AudioManager {
         if (this.titleEl) this.titleEl.textContent = track.title || "Unknown Title";
         if (this.artistEl) this.artistEl.textContent = track.artist || "Unknown Artist";
 
-        this.setArtwork(track.artwork_url);
+        const artUrl = track.artwork_url || (track.album_id ? `/api/library/album-art/${track.album_id}` : (track.artist ? `/api/library/artist-art?artist=${encodeURIComponent(track.artist)}` : ""));
+        this.setArtwork(artUrl);
 
-        const badgeText = track.type === 'staging' ? 'STAGING' : (track.id ? 'LIBRARY' : '30s PREVIEW');
+        let badgeText = "30s PREVIEW";
+        if (track.type === "staging") {
+            badgeText = "STAGING";
+        } else if (track.id || track.type === "library" || track.is_library) {
+            badgeText = "LIBRARY";
+        }
         this.setTypeBadge(badgeText);
+
+        if (this.durationEl) {
+            if (track.length_str) {
+                this.durationEl.textContent = track.length_str;
+            } else if (track.duration) {
+                this.durationEl.textContent = track.duration;
+            } else if (track.length) {
+                this.durationEl.textContent = this.formatTime(track.length);
+            } else {
+                this.durationEl.textContent = "0:00";
+            }
+        }
     }
 
     setArtwork(url) {
@@ -3693,16 +3882,19 @@ class AudioManager {
             }
         }
 
-        // 2. Update all inline play buttons across the page
-        document.querySelectorAll(".btn-track-play").forEach(btn => {
+        // 2. Update all inline play and preview buttons across the page
+        document.querySelectorAll(".btn-track-play, .btn-track-preview").forEach(btn => {
             const trackId = btn.dataset.trackId;
             const artist = btn.dataset.artist;
             const title = btn.dataset.title;
             const path = btn.dataset.path;
+            const previewUrl = btn.dataset.preview;
+            const isPreviewBtn = btn.classList.contains("btn-track-preview");
 
             const isMatch = this.currentTrack && (
                 (trackId && String(trackId) === String(this.currentTrack.id)) ||
                 (path && path === this.currentTrack.path) ||
+                (previewUrl && previewUrl === this.currentTrack.preview_url) ||
                 (artist && title && artist.toLowerCase() === (this.currentTrack.artist || "").toLowerCase() && title.toLowerCase() === (this.currentTrack.title || "").toLowerCase())
             );
 
@@ -3716,19 +3908,19 @@ class AudioManager {
                     btn.classList.add("is-playing");
                     btn.innerHTML = '<i class="fa-solid fa-pause"></i>';
                 } else {
-                    btn.innerHTML = '<i class="fa-solid fa-play"></i>';
+                    btn.innerHTML = isPreviewBtn ? '<i class="fa-solid fa-headphones"></i>' : '<i class="fa-solid fa-play"></i>';
                 }
             } else {
-                btn.innerHTML = '<i class="fa-solid fa-play"></i>';
+                btn.innerHTML = isPreviewBtn ? '<i class="fa-solid fa-headphones"></i>' : '<i class="fa-solid fa-play"></i>';
             }
         });
 
-        // 3. Update table row highlights
-        document.querySelectorAll("tr[data-track-id], tr[data-artist], tr[id^='missing-row-'], tr[id^='staging-row-']").forEach(tr => {
-            const trackId = tr.dataset.trackId;
-            const artist = tr.dataset.artist;
-            const title = tr.dataset.title;
-            const path = tr.dataset.path;
+        // 3. Update table row and list item highlights
+        document.querySelectorAll("tr[data-track-id], tr[data-artist], tr[id^='missing-row-'], tr[id^='staging-row-'], .lib-song-row").forEach(el => {
+            const trackId = el.dataset.trackId || el.dataset.songId;
+            const artist = el.dataset.artist;
+            const title = el.dataset.title;
+            const path = el.dataset.path;
 
             const isMatch = this.currentTrack && (
                 (trackId && String(trackId) === String(this.currentTrack.id)) ||
@@ -3737,9 +3929,9 @@ class AudioManager {
             );
 
             if (isMatch && this.isPlaying) {
-                tr.classList.add("track-playing");
+                el.classList.add("track-playing");
             } else {
-                tr.classList.remove("track-playing");
+                el.classList.remove("track-playing");
             }
         });
     }
@@ -4300,7 +4492,9 @@ function renderAlbumSongs(artIdx, albIdx) {
                             data-alb-idx="${albIdx}"
                             data-song-idx="${sIdx}"
                             data-track-id="${song.id}"
-                            title="Play 30s Preview">
+                            data-artist="${escapeAttr(song.artist || art.name)}"
+                            data-title="${escapeAttr(song.title)}"
+                            title="Play Track">
                             <i class="fa-solid fa-play"></i>
                         </button>
                         <span class="lib-song-number">${song.number || (sIdx + 1)}</span>
@@ -4341,14 +4535,14 @@ function renderAlbumSongs(artIdx, albIdx) {
             const sIdx = parseInt(btn.dataset.songIdx);
             const song = alb.tracks[sIdx];
             if (song && audioManager) {
-                audioManager.playTrack({
-                    id: song.id,
-                    title: song.title,
-                    artist: song.artist || art.name,
-                    album: alb.name,
+                const queue = alb.tracks.map(t => ({
+                    ...t,
+                    artist: t.artist || art.name,
+                    album: t.album || alb.name,
                     artwork_url: alb.art_url,
                     type: "library"
-                }, alb.tracks, sIdx, btn);
+                }));
+                audioManager.playTrack(queue[sIdx], queue, sIdx, btn);
             }
         });
     });
@@ -4448,7 +4642,7 @@ async function loadLibraryBrowser() {
         tbody.innerHTML = tracks.map((t, idx) => `
             <tr data-track-id="${t.id}">
                 <td style="text-align: center;">
-                    <button type="button" class="btn-track-play btn-lib-play" data-index="${idx}" data-track-id="${t.id}" title="Play Preview">
+                    <button type="button" class="btn-track-play btn-lib-play" data-index="${idx}" data-track-id="${t.id}" data-artist="${escapeAttr(t.artist)}" data-title="${escapeAttr(t.title)}" title="Play Track">
                         <i class="fa-solid fa-play"></i>
                     </button>
                 </td>
@@ -4480,7 +4674,11 @@ async function loadLibraryBrowser() {
                 const idx = parseInt(btn.dataset.index);
                 const track = tracks[idx];
                 if (track && audioManager) {
-                    audioManager.playTrack(track, tracks, idx, btn);
+                    const queue = tracks.map(t => ({
+                        ...t,
+                        type: "library"
+                    }));
+                    audioManager.playTrack(queue[idx], queue, idx, btn);
                 }
             });
         });
@@ -4939,13 +5137,13 @@ function renderAlbumChecklist(artist, albums, query, autoImport, autoComplete, h
                         </div>
                         <div class="album-track-right">
                             <span class="track-duration">${escapeHtml(t.duration || '')}</span>
-                            <button type="button" class="btn-song-preview"
+                            <button type="button" class="btn-track-preview btn-song-preview"
                                 data-artist="${escapeAttr(artist.name)}"
                                 data-title="${escapeAttr(t.name)}"
                                 data-preview="${escapeAttr(t.preview_url || '')}"
                                 data-artwork="${escapeAttr(alb.artwork_url || '')}"
-                                title="Preview Song">
-                                <i class="fa-solid fa-play"></i>
+                                title="Preview 30s Audio Clip">
+                                <i class="fa-solid fa-headphones"></i>
                             </button>
                         </div>
                     </div>

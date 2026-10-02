@@ -3832,18 +3832,42 @@ paths:
             return ''
         if os.path.exists(p):
             return p
-        candidate = os.path.join(self.music_dir, p)
-        if os.path.exists(candidate):
-            return candidate
-        if '/Music/' in p:
-            cand = os.path.join(self.music_dir, p.split('/Music/', 1)[1])
+
+        candidates = [p]
+        norm_p = p.replace('\\', '/')
+        if not os.path.isabs(p):
+            candidates.append(os.path.join(self.music_dir, p))
+
+        for key in ['/Music/', '/music/', '/MUSIC/']:
+            if key in norm_p:
+                rel = norm_p.split(key, 1)[1]
+                candidates.append(os.path.join(self.music_dir, rel.replace('/', os.sep)))
+
+        base = os.path.basename(norm_p)
+        candidates.append(os.path.join(self.music_dir, base))
+
+        for cand in candidates:
             if os.path.exists(cand):
                 return cand
-        if '/music/' in p:
-            cand = os.path.join(self.music_dir, p.split('/music/', 1)[1])
-            if os.path.exists(cand):
-                return cand
-        return candidate if not os.path.isabs(p) else p
+            c_straight = cand.replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"')
+            if os.path.exists(c_straight):
+                return c_straight
+            c_curly = cand.replace("'", "’")
+            if os.path.exists(c_curly):
+                return c_curly
+
+            parent = os.path.dirname(cand)
+            if parent and os.path.isdir(parent):
+                cand_base = os.path.basename(cand)
+                norm_target = re.sub(r'[\W_]+', '', cand_base.lower())
+                try:
+                    for fname in os.listdir(parent):
+                        if re.sub(r'[\W_]+', '', fname.lower()) == norm_target:
+                            return os.path.join(parent, fname)
+                except Exception:
+                    pass
+
+        return os.path.join(self.music_dir, p) if not os.path.isabs(p) else p
 
     def get_track_by_id(self, track_id: int) -> Optional[Dict[str, Any]]:
         """Fetch a single track row by SQLite item ID."""

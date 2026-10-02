@@ -55,7 +55,7 @@ def _load_app_version() -> str:
                         return str(data["version"]).strip()
             except Exception:
                 pass
-    return "1.7.1"
+    return "1.7.2"
 
 APP_VERSION = _load_app_version()
 
@@ -741,9 +741,12 @@ async def get_audio_preview(track_id: int, request: Request):
 async def get_audio_stream(track_id: int, request: Request):
     """Stream full audio track from library vault with Range support."""
     track = service.get_track_by_id(track_id)
-    if not track or not track.get("path") or not os.path.exists(track["path"]):
+    if not track or not track.get("path"):
+        raise HTTPException(status_code=404, detail=f"Track {track_id} not found in library")
+    file_path = service.resolve_audio_path(track["path"])
+    if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail=f"Audio file not found in library vault for track {track_id}")
-    return stream_file_with_range(track["path"], request)
+    return stream_file_with_range(file_path, request)
 
 @app.get("/api/audio/download/{track_id}")
 async def download_audio_track(track_id: int):
