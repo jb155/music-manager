@@ -7234,4 +7234,48 @@ html, body {
     opacity: 0.8;
 }
 
+/* Version badge in header */
+.app-version-badge {
+    font-size: 11px;
+    color: var(--text-muted, rgba(255, 255, 255, 0.5));
+    font-family: var(--font-mono, monospace);
+    opacity: 0.75;
+    margin-left: 8px;
+    user-select: none;
+    align-self: center;
+}
+
+/* Player type badge transition */
+#player-type-badge {
+    transition: opacity 0.2s ease;
+}
+
+/* Tab count badge for missing tracks */
+.tab-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--danger, #ef4444);
+    color: #ffffff;
+    border-radius: 9999px;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 0 5px;
+    min-width: 18px;
+    height: 18px;
+    margin-left: 5px;
+}
+
+/* Library Maintenance Header Action Group */
+.library-maintenance-buttons {
+    display: inline-flex;
+    gap: 6px;
+}
+@media (max-width: 900px) {
+    .library-maintenance-buttons {
+        display: none !important;
+    }
+}
+
+
 

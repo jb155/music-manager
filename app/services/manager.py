@@ -19,22 +19,6 @@ import unicodedata
 from collections import defaultdict, Counter
 from typing import AsyncGenerator, List, Dict, Any, Optional, Tuple, Union, Set
 
-# Ensure HOME and XDG environment variables point to a writable config directory
-# to prevent SpotDL, Spotipy, and yt-dlp from failing with PermissionError when running as unprivileged user
-_storage_dir = os.environ.get("STORAGE_DIR")
-_default_config = os.path.join(_storage_dir, "config") if _storage_dir else "/config"
-if not os.environ.get("HOME") or os.environ.get("HOME") == "/":
-    os.environ["HOME"] = _default_config
-if not os.environ.get("XDG_CONFIG_HOME"):
-    os.environ["XDG_CONFIG_HOME"] = _default_config
-if not os.environ.get("XDG_CACHE_HOME"):
-    os.environ["XDG_CACHE_HOME"] = os.path.join(_default_config, ".cache")
-try:
-    os.makedirs(os.path.join(_default_config, "spotdl"), exist_ok=True)
-    os.makedirs(os.path.join(_default_config, ".cache"), exist_ok=True)
-except Exception:
-    pass
-
 logger = logging.getLogger("music_manager")
 
 def normalize_ollama_host(host_str: str) -> str:
@@ -1573,74 +1557,93 @@ paths:
         """Check newly imported albums for missing tracks via MusicBrainz and automatically download them."""
         await self.broadcast_log("\n[ALBUM AUTO-COMPLETE] Checking if newly imported songs belong to incomplete albums...\n")
 
-        from beets import metadata_plugins
-        from beets.plugins import load_plugins
-        from beets.library import Library
-
-        try:
-            load_plugins()
-            lib = Library(os.path.join(self.beets_dir, "library.db"))
-        except Exception as e:
-            await self.broadcast_log(f"[ALBUM AUTO-COMPLETE ERROR] Could not open Beets library: {e}\n")
-            return {"success": False, "error": str(e)}
-
-        # Fast SQL check: find albums that had items added in this session
         db_path = os.path.join(self.beets_dir, "library.db")
+        if not os.path.exists(db_path):
+            await self.broadcast_log("[ALBUM AUTO-COMPLETE] Library database does not exist yet.\n")
+            return {"success": True, "downloaded": 0}
+
         try:
-            conn = sqlite3.connect(db_path)
+            conn = self.get_db_connection()
             c = conn.cursor()
             c.execute("""
-                SELECT DISTINCT a.id
+                SELECT DISTINCT a.id, a.albumartist, a.album, a.mb_albumid
                 FROM albums a
                 JOIN items i ON i.album_id = a.id
                 WHERE i.added >= ?
             """, (since_timestamp - 15,))
-            recent_album_ids = [r[0] for r in c.fetchall()]
-            conn.close()
+            recent_album_rows = c.fetchall()
         except Exception as e:
             logger.error(f"Error checking recent album ids: {e}")
-            recent_album_ids = []
+            await self.broadcast_log(f"[ALBUM AUTO-COMPLETE ERROR] Database query error: {e}\n")
+            return {"success": False, "error": str(e)}
 
-        if not recent_album_ids:
+        if not recent_album_rows:
+            conn.close()
             await self.broadcast_log("[ALBUM AUTO-COMPLETE] No recent albums found to evaluate.\n")
             return {"success": True, "downloaded": 0}
 
         incomplete_albums = []
-        for aid in recent_album_ids:
+        for aid, albumartist, album_name, mb_albumid in recent_album_rows:
             try:
-                alb = lib.get_album(aid)
-                if alb and alb.albumtotal and len(alb.items()) < alb.albumtotal:
-                    incomplete_albums.append(alb)
+                c.execute("""
+                    SELECT COUNT(id), MAX(tracktotal)
+                    FROM items
+                    WHERE album_id = ?
+                """, (aid,))
+                row = c.fetchone()
+                item_count = row[0] if row and row[0] else 0
+                track_total = row[1] if row and row[1] else 0
+                if track_total and item_count < track_total:
+                    incomplete_albums.append({
+                        "id": aid,
+                        "album": album_name,
+                        "albumartist": albumartist,
+                        "mb_albumid": mb_albumid,
+                        "item_count": item_count,
+                        "track_total": track_total
+                    })
             except Exception:
                 pass
 
         if not incomplete_albums:
+            conn.close()
             await self.broadcast_log("[ALBUM AUTO-COMPLETE] All newly cataloged albums are already complete! No missing tracks.\n")
             return {"success": True, "downloaded": 0}
 
         await self.broadcast_log(f"[ALBUM AUTO-COMPLETE] Found {len(incomplete_albums)} incomplete album(s) from recent imports. Fetching tracklists...\n")
 
         all_missing_tracks = []
-        for album in incomplete_albums:
-            current_count = len(album.items())
-            total_count = album.albumtotal
-            await self.broadcast_log(f"   -> Album '{album.album}' by '{album.albumartist}' has {current_count}/{total_count} tracks cataloged.\n")
+        metadata_plugins = None
+        try:
+            from beets import metadata_plugins
+            from beets.plugins import load_plugins
+            load_plugins()
+        except Exception as e:
+            logger.warning(f"Could not load beets metadata plugins: {e}")
 
-            if album.mb_albumid:
+        for album in incomplete_albums:
+            current_count = album["item_count"]
+            total_count = album["track_total"]
+            await self.broadcast_log(f"   -> Album '{album['album']}' by '{album['albumartist']}' has {current_count}/{total_count} tracks cataloged.\n")
+
+            if album["mb_albumid"] and metadata_plugins:
                 try:
-                    album_info = metadata_plugins.album_for_id(album.mb_albumid, "musicbrainz")
+                    album_info = metadata_plugins.album_for_id(album["mb_albumid"], "musicbrainz")
                     if album_info:
-                        existing_titles = {normalize_music_title(i.title) for i in album.items() if i.title}
+                        c.execute("SELECT title FROM items WHERE album_id = ?", (album["id"],))
+                        existing_titles = {normalize_music_title(r[0]) for r in c.fetchall() if r[0]}
                         missing = []
                         for track in album_info.tracks:
                             if normalize_music_title(track.title) not in existing_titles:
-                                missing.append(f"{album.albumartist} - {track.title}")
+                                missing.append(f"{album['albumartist']} - {track.title}")
 
                         if missing:
                             await self.broadcast_log(f"      Missing {len(missing)} track(s): {', '.join(missing[:3])}{'...' if len(missing) > 3 else ''}\n")
                             all_missing_tracks.extend(missing)
                 except Exception as e:
-                    await self.broadcast_log(f"      [WARN] Could not fetch tracklist for '{album.album}': {e}\n")
+                    await self.broadcast_log(f"      [WARN] Could not fetch tracklist for '{album['album']}': {e}\n")
+
+        conn.close()
 
         if not all_missing_tracks:
             await self.broadcast_log("[ALBUM AUTO-COMPLETE] No missing tracks identified to download.\n")
@@ -4631,8 +4634,8 @@ paths:
 
         # Ignore empty or "all" genres
         if genre and genre.strip() and genre.strip().lower() not in ("", "all", "all genres", "all genre"):
-            base_where.append("items.genre LIKE ?")
-            base_params.append(f"%{genre.strip()}%")
+            base_where.append("LOWER(items.genre) LIKE ?")
+            base_params.append(f"%{genre.strip().lower()}%")
 
         # Parse decade safely
         if decade:
@@ -5470,8 +5473,8 @@ paths:
             sql_params.extend([q_like, q_like, q_like] + [f"%{w}%" for w in words])
 
         if genre and genre.strip() and genre.strip().lower() not in ("", "all", "all genres", "all genre"):
-            g = f"%{genre.strip()}%"
-            where_clauses.append("items.genre LIKE ?")
+            g = f"%{genre.strip().lower()}%"
+            where_clauses.append("LOWER(items.genre) LIKE ?")
             sql_params.append(g)
 
         if decade and decade > 1900:
@@ -7581,6 +7584,7 @@ paths:
 
     async def download_batch_albums(self, artist: str, albums: List[Dict[str, Any]], auto_import: bool = True, auto_complete_album: bool = True) -> Dict[str, Any]:
         """Batch download multiple albums for an artist sequentially with Beets auto-import."""
+        self._abort_requested = False
         queries = []
         seen_tracks = set()
         skipped_count = 0

@@ -310,10 +310,6 @@ async def health_check():
 async def get_storage_info():
     return service.get_storage_info()
 
-@app.get("/api/system/storage")
-async def get_storage_info():
-    return service.get_storage_info()
-
 @app.get("/api/status")
 @app.get("/api/progress")
 async def get_status():

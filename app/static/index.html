@@ -34,6 +34,7 @@
                         <option value="midnight_cyan">🌌 Midnight Cyan</option>
                     </select>
                 </div>
+                <span id="app-version-badge" class="app-version-badge"></span>
                 <div class="stat-pill update-pill hidden" id="update-badge" style="display: none;" title="Click to view update details">
                     <i class="fa-solid fa-sparkles"></i> <span id="update-badge-label">Update Available</span>
                 </div>
@@ -87,7 +88,7 @@
                     <form id="download-form" class="mt-3">
                         <div class="input-group">
                             <i class="fa-brands fa-spotify input-icon"></i>
-                            <input type="text" id="download-query" placeholder="e.g. https://open.spotify.com/track/... or 'Pink Floyd - Time'" required autofocus>
+                            <input type="text" id="download-query" placeholder="Artist name  OR  Artist - Track Title  OR  Spotify/YouTube URL" required autofocus>
                             <button type="submit" class="btn btn-primary" id="btn-start-download"><i class="fa-solid fa-arrow-down"></i> Download</button>
                         </div>
 
@@ -128,6 +129,14 @@
                             <p class="subtitle">Search, filter, preview, and explore your complete library by Artist, Album, or Track.</p>
                         </div>
                         <div class="action-buttons flex-align-center" style="display: flex; align-items: center; gap: 12px;">
+                            <div class="library-maintenance-buttons" style="display: inline-flex; gap: 6px;">
+                                <button type="button" class="btn btn-secondary btn-sm" id="btn-sanitize-library" title="Prune dead entries, clean duplicate files, and normalize paths">
+                                    <i class="fa-solid fa-broom"></i> Clean & Deduplicate
+                                </button>
+                                <button type="button" class="btn btn-secondary btn-sm" id="btn-tag-genres" title="Run full library genre tagging & ID3 updating across all tracks">
+                                    <i class="fa-solid fa-tags"></i> Tag All Genres
+                                </button>
+                            </div>
                             <div class="view-mode-toggle btn-group">
                                 <button type="button" class="btn btn-sm btn-secondary active" id="btn-lib-view-hierarchy" title="Artist -> Album -> Songs Hierarchy">
                                     <i class="fa-solid fa-sitemap"></i> Artist View
@@ -240,14 +249,6 @@
                         <div>
                             <h2><i class="fa-solid fa-list-ol"></i> Smart Playlist Creator</h2>
                             <p class="subtitle">Generate balanced, personalized playlists from your library with tied duration & song controls, multiple generation algorithms, and direct ZIP or M3U8 exports.</p>
-                        </div>
-                        <div class="action-buttons">
-                            <button class="btn btn-secondary btn-sm" id="btn-sanitize-library" title="Prune dead entries, clean duplicate files, and normalize paths">
-                                <i class="fa-solid fa-broom"></i> Clean & Deduplicate
-                            </button>
-                            <button class="btn btn-secondary btn-sm" id="btn-tag-genres" title="Run full library genre tagging & ID3 updating across all tracks">
-                                <i class="fa-solid fa-tags"></i> Tag All Genres
-                            </button>
                         </div>
                     </div>
 
@@ -1318,7 +1319,7 @@
     </div>
 
     <!-- Notification Toast -->
-    <div id="toast-container" class="toast-container"></div>
+    <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
 
     <script src="/static/app.js?v=1.7.6"></script>
 </body>

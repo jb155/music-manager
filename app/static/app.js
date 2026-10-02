@@ -24,6 +24,7 @@ document.addEventListener("DOMContentLoaded", () => {
 // Toast Notifications
 function showToast(message, type = "info") {
     const container = document.getElementById("toast-container");
+    if (!container) return;
     const toast = document.createElement("div");
     toast.className = `toast ${type}`;
 
@@ -51,6 +52,10 @@ function initUpdateBadge() {
     const watermark = document.getElementById("app-version-watermark");
     if (watermark) {
         watermark.addEventListener("click", () => showUpdateModal(null, true));
+    }
+    const headerBadge = document.getElementById("app-version-badge");
+    if (headerBadge) {
+        headerBadge.addEventListener("click", () => showUpdateModal(null, true));
     }
 }
 
@@ -81,6 +86,10 @@ async function checkAppVersion() {
         if (watermark && data.current_version) {
             watermark.innerHTML = `<i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v${data.current_version}`;
         }
+        const headerBadge = document.getElementById("app-version-badge");
+        if (headerBadge && data.current_version) {
+            headerBadge.textContent = `v${data.current_version}`;
+        }
     } catch (e) {
         console.debug("Update check skipped:", e);
     }
@@ -96,17 +105,12 @@ async function showUpdateModal(data, forceRefresh = false) {
                 _latestVersionInfo = info;
             }
         } catch (e) {
-            console.debug("Error fetching version info for modal:", e);
+            console.warn("Version check failed for modal:", e);
         }
     }
     if (!info) {
-        info = {
-            current_version: "1.3.2",
-            latest_version: "1.3.2",
-            update_available: false,
-            release_notes: "Automated Beets deduplication, daily midnight scheduler, and Syncthing sync filters.",
-            release_url: "https://github.com/jb155/music-manager"
-        };
+        showToast("Could not retrieve version details", "info");
+        return;
     }
 
     const modal = document.getElementById("update-modal");
@@ -363,7 +367,10 @@ document.getElementById("download-form").addEventListener("submit", async (e) =>
     if (!query) return;
 
     const isUrl = query.startsWith("http://") || query.startsWith("https://") || query.startsWith("spotify:");
-    const hasTrackSeparator = query.includes(" - ");
+    // Direct download if: URL, OR query explicitly has " - " separating artist from track
+    // (e.g., "Pink Floyd - Comfortably Numb" → direct spotdl download)
+    // Otherwise → artist discography lookup
+    const hasTrackSeparator = /^[^-]+ - .{2,}$/.test(query);
 
     // Direct download if URL or explicit track query
     if (isUrl || hasTrackSeparator) {
@@ -407,6 +414,18 @@ let missingTracksData = [];
 
 async function loadMissingTracks() {
     await updateMissingPipelineUI();
+    try {
+        const res = await fetch("/api/missing/cached");
+        if (res.ok) {
+            const data = await res.json();
+            const badge = document.getElementById("missing-badge");
+            if (badge) {
+                const count = data.count || 0;
+                badge.textContent = count;
+                badge.style.display = count > 0 ? "inline-flex" : "none";
+            }
+        }
+    } catch (_) {}
 }
 
 async function updateMissingPipelineUI() {
@@ -716,6 +735,10 @@ function initManualUpload() {
                 }
             }
             inputFolder.value = "";
+            const skipped = inputFolder.files ? inputFolder.files.length - filesToUpload.length : 0;
+            if (skipped > 0) {
+                showToast(`${skipped} non-audio file(s) skipped (only audio formats accepted)`, "info");
+            }
             if (filesToUpload.length > 0) {
                 uploadQueue(filesToUpload);
             } else {
@@ -738,7 +761,11 @@ function initManualUpload() {
                     filesToUpload.push({ file: f, path: f.name });
                 }
             }
+            const skipped = inputFiles.files.length - filesToUpload.length;
             inputFiles.value = "";
+            if (skipped > 0) {
+                showToast(`${skipped} non-audio file(s) skipped (only audio formats accepted)`, "info");
+            }
             if (filesToUpload.length > 0) {
                 uploadQueue(filesToUpload);
             } else {
@@ -1488,7 +1515,7 @@ function renderRecommendations(recs) {
                 </div>
 
                 <div class="rec-card-footer mt-3">
-                    <button class="btn btn-secondary btn-sm full-width" onclick="downloadArtistTopTracks('${escapeAttr(artistQuery)}')">
+                    <button class="btn btn-secondary btn-sm full-width btn-download-artist-top" data-artist="${escapeAttr(artistQuery)}">
                         <i class="fa-solid fa-download"></i> Download Artist Top Tracks
                     </button>
                 </div>
@@ -1507,12 +1534,17 @@ function renderRecommendations(recs) {
         });
     });
 
+    grid.querySelectorAll(".btn-download-artist-top").forEach(btn => {
+        btn.addEventListener("click", () => {
+            downloadArtistTopTracks(btn.dataset.artist);
+        });
+    });
+
     if (audioManager) audioManager.updatePlayStateUI();
 }
 
 async function downloadArtistTopTracks(artistName) {
-    const query = `${artistName} top tracks`;
-    downloadSingleTrack(query);
+    downloadSingleTrack(artistName);
 }
 
 // Helpers
@@ -1966,7 +1998,14 @@ async function sanitizeLibrary() {
 }
 
 async function tagAllLibraryGenres() {
-    if (!confirm("Run full library genre tagging across all songs? This queries Last.fm and seeds your library with rich genre tags and writes them to audio files. It runs smoothly in the background.")) {
+    let trackCount = "all";
+    try {
+        const stats = await fetch("/api/library/stats").then(r => r.json());
+        if (stats.total_tracks) trackCount = stats.total_tracks;
+    } catch (_) {}
+
+    const estimatedMinutes = typeof trackCount === "number" ? Math.ceil(trackCount / 20) : "??";
+    if (!confirm(`Tag genres for ${trackCount} tracks? This queries Last.fm for each track and may take ~${estimatedMinutes} minutes. It runs safely in the background.`)) {
         return;
     }
 
@@ -1987,8 +2026,18 @@ async function tagAllLibraryGenres() {
 async function generatePlaylist() {
     const btnGen = document.getElementById("btn-generate-playlist");
     const origHtml = btnGen.innerHTML;
-    btnGen.disabled = true;
-    btnGen.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Curating Playlist...`;
+
+    window._playlistAbortController = new AbortController();
+    btnGen.innerHTML = `<i class="fa-solid fa-stop-circle"></i> Cancel`;
+    btnGen.disabled = false;
+    btnGen.onclick = () => {
+        if (window._playlistAbortController) {
+            window._playlistAbortController.abort();
+            window._playlistAbortController = null;
+            btnGen.disabled = true;
+            btnGen.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Cancelling...`;
+        }
+    };
 
     try {
         const activeSysBtn = document.querySelector(".btn-system.active");
@@ -2104,7 +2153,8 @@ async function generatePlaylist() {
         const res = await fetch("/api/playlist/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal: window._playlistAbortController.signal
         });
 
         const data = await res.json();
@@ -2129,10 +2179,16 @@ async function generatePlaylist() {
             showToast(data.error || "Could not find enough tracks matching criteria in library", "error");
         }
     } catch (e) {
-        showToast("Error generating playlist: " + e.message, "error");
+        if (e.name === "AbortError") {
+            showToast("Playlist generation cancelled", "info");
+        } else {
+            showToast("Error generating playlist: " + e.message, "error");
+        }
     } finally {
         btnGen.disabled = false;
         btnGen.innerHTML = origHtml;
+        btnGen.onclick = null;
+        window._playlistAbortController = null;
     }
 }
 
@@ -2434,9 +2490,11 @@ async function selectSeedSong(track) {
                 currentSeedTrack.bpm = data.bpm;
                 if (bpmTextEl) bpmTextEl.textContent = `${Math.round(data.bpm)} BPM`;
             } else {
+                currentSeedTrack.bpm = 120;
                 if (bpmTextEl) bpmTextEl.textContent = `120 BPM (est)`;
             }
         } catch (e) {
+            currentSeedTrack.bpm = 120;
             if (bpmTextEl) bpmTextEl.textContent = `120 BPM (est)`;
         }
     }
@@ -2861,8 +2919,17 @@ function initAiCuratorControls() {
 
     // 2. Provider Select Change
     const providerSelect = document.getElementById("ai-provider-select");
+    let previousProvider = providerSelect ? providerSelect.value : "";
     if (providerSelect) {
         providerSelect.addEventListener("change", (e) => {
+            const keyInput = document.getElementById("ai-api-key-input");
+            if (keyInput && keyInput.value.trim() && !keyInput.value.startsWith("••••") && !keyInput.value.startsWith("Saved:")) {
+                if (!confirm("You have an unsaved API key. Switching provider will clear it. Continue?")) {
+                    providerSelect.value = previousProvider;
+                    return;
+                }
+            }
+            previousProvider = e.target.value;
             const newProv = e.target.value;
             updateProviderFieldVisibility(newProv);
             const savedProvModel = savedAiConfig?.provider_configs?.[newProv]?.model;
@@ -3223,6 +3290,10 @@ function renderVennSvg(data) {
 
         const p01 = pairwise.find(p => (p.indices[0] === 0 && p.indices[1] === 1)) || { count: 0 };
         const p23 = pairwise.find(p => (p.indices[0] === 2 && p.indices[1] === 3)) || { count: 0 };
+        const p02 = pairwise.find(p => (p.indices[0] === 0 && p.indices[1] === 2)) || { count: 0 };
+        const p13 = pairwise.find(p => (p.indices[0] === 1 && p.indices[1] === 3)) || { count: 0 };
+        const p03 = pairwise.find(p => (p.indices[0] === 0 && p.indices[1] === 3)) || { count: 0 };
+        const p12 = pairwise.find(p => (p.indices[0] === 1 && p.indices[1] === 2)) || { count: 0 };
 
         svgInner = `
             <svg viewBox="0 0 540 330" class="venn-svg">
@@ -3257,6 +3328,20 @@ function renderVennSvg(data) {
                     <rect x="245" y="215" width="50" height="24" rx="6" fill="rgba(15, 23, 42, 0.85)" stroke="#38bdf8" stroke-width="1" />
                     <text x="270" y="227" class="venn-text-label" style="font-size: 9px; fill: #7dd3fc;">3 ∩ 4</text>
                     <text x="270" y="236" class="venn-text-count" style="font-size: 9px;">${p23.count}</text>
+                </g>
+
+                <!-- Left Crossover 0 ∩ 2 -->
+                <g class="venn-zone" data-region-id="overlap_0_2" style="cursor: pointer;">
+                    <rect x="180" y="153" width="50" height="24" rx="6" fill="rgba(15, 23, 42, 0.85)" stroke="#38bdf8" stroke-width="1" />
+                    <text x="205" y="165" class="venn-text-label" style="font-size: 9px; fill: #7dd3fc;">1 ∩ 3</text>
+                    <text x="205" y="174" class="venn-text-count" style="font-size: 9px;">${p02.count}</text>
+                </g>
+
+                <!-- Right Crossover 1 ∩ 3 -->
+                <g class="venn-zone" data-region-id="overlap_1_3" style="cursor: pointer;">
+                    <rect x="310" y="153" width="50" height="24" rx="6" fill="rgba(15, 23, 42, 0.85)" stroke="#38bdf8" stroke-width="1" />
+                    <text x="335" y="165" class="venn-text-label" style="font-size: 9px; fill: #7dd3fc;">2 ∩ 4</text>
+                    <text x="335" y="174" class="venn-text-count" style="font-size: 9px;">${p13.count}</text>
                 </g>
 
                 <!-- 4-Circle Core Sweet Spot -->
@@ -3820,7 +3905,13 @@ class AudioManager {
     }
 
     setTypeBadge(text) {
-        if (this.typeBadge) this.typeBadge.textContent = text;
+        if (this.typeBadge) {
+            this.typeBadge.style.opacity = "0";
+            setTimeout(() => {
+                this.typeBadge.textContent = text;
+                this.typeBadge.style.opacity = "1";
+            }, 150);
+        }
     }
 
     updatePlayStateUI() {
@@ -4028,6 +4119,16 @@ async function initLibraryBrowser() {
         });
     }
 
+    // Library Maintenance Buttons
+    const btnSanitize = document.getElementById("btn-sanitize-library");
+    if (btnSanitize) {
+        btnSanitize.onclick = () => sanitizeLibrary();
+    }
+    const btnTagGenres = document.getElementById("btn-tag-genres");
+    if (btnTagGenres) {
+        btnTagGenres.onclick = () => tagAllLibraryGenres();
+    }
+
     // Populate genres into dropdown
     await populateLibraryGenres();
 
@@ -4118,12 +4219,22 @@ async function loadLibraryHierarchy() {
         if (nextBtn) nextBtn.disabled = libraryHierarchyPage >= totalPages;
 
         if (currentLibraryArtists.length === 0) {
-            listEl.innerHTML = `
-                <div class="p-5 text-center text-muted">
-                    <i class="fa-solid fa-users-slash fa-2x mb-2" style="opacity: 0.4;"></i>
-                    <p>No artists match your search criteria.</p>
-                </div>
-            `;
+            if (!search && !genre && !decade) {
+                listEl.innerHTML = `
+                    <div class="empty-state text-center p-5">
+                        <i class="fa-solid fa-compact-disc fa-3x text-muted mb-3" style="opacity: 0.35; display: block;"></i>
+                        <h4>Your library is empty</h4>
+                        <p class="text-muted">Run a Library Scan or download your first tracks from the Download tab.</p>
+                    </div>
+                `;
+            } else {
+                listEl.innerHTML = `
+                    <div class="p-5 text-center text-muted">
+                        <i class="fa-solid fa-users-slash fa-2x mb-2" style="opacity: 0.4;"></i>
+                        <p>No artists match your search criteria.</p>
+                    </div>
+                `;
+            }
             return;
         }
 
