@@ -53,10 +53,6 @@ function initUpdateBadge() {
     if (watermark) {
         watermark.addEventListener("click", () => showUpdateModal(null, true));
     }
-    const headerBadge = document.getElementById("app-version-badge");
-    if (headerBadge) {
-        headerBadge.addEventListener("click", () => showUpdateModal(null, true));
-    }
 }
 
 async function checkAppVersion() {
@@ -85,10 +81,6 @@ async function checkAppVersion() {
         const watermark = document.getElementById("app-version-watermark");
         if (watermark && data.current_version) {
             watermark.innerHTML = `<i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v${data.current_version}`;
-        }
-        const headerBadge = document.getElementById("app-version-badge");
-        if (headerBadge && data.current_version) {
-            headerBadge.textContent = `v${data.current_version}`;
         }
     } catch (e) {
         console.debug("Update check skipped:", e);

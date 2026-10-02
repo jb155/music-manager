@@ -1,5 +1,5 @@
 {
-  "version": "1.7.6",
+  "version": "1.7.7",
   "release_date": "2026-10-02",
-  "notes": "Redesign Library Completer tab: remove redundant table and filter bar, replacing with a dedicated 1-click pipeline hero card, automated step flow, and real-time live status indicator."
+  "notes": "Bug fixes, functional correctness and UI/UX improvements: direct SQLite auto-complete, 4-circle Venn diagram, library maintenance actions relocated to Vault Explorer, and bottom-only version watermark."
 }
