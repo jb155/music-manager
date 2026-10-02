@@ -3916,7 +3916,7 @@ class AudioManager {
         });
 
         // 3. Update table row and list item highlights
-        document.querySelectorAll("tr[data-track-id], tr[data-artist], tr[id^='missing-row-'], tr[id^='staging-row-'], .lib-song-row").forEach(el => {
+        document.querySelectorAll("tr[data-track-id], tr[data-artist], tr[id^='missing-row-'], tr[id^='staging-row-'], .lib-song-row, .rec-track-item, .album-track-item").forEach(el => {
             const trackId = el.dataset.trackId || el.dataset.songId;
             const artist = el.dataset.artist;
             const title = el.dataset.title;
@@ -5125,7 +5125,7 @@ function renderAlbumChecklist(artist, albums, query, autoImport, autoComplete, h
             </div>
             <div class="album-tracks-list">
                 ${alb.tracks.map((t, tIdx) => `
-                    <div class="album-track-item ${t.selected ? 'active' : ''} ${t.in_library ? 'in-library' : ''}" data-album-idx="${albIdx}" data-track-idx="${tIdx}">
+                    <div class="album-track-item ${t.selected ? 'active' : ''} ${t.in_library ? 'in-library' : ''}" data-album-idx="${albIdx}" data-track-idx="${tIdx}" data-artist="${escapeAttr(artist.name)}" data-title="${escapeAttr(t.name)}">
                         <div class="album-track-left">
                             <label class="custom-checkbox-wrap" title="${t.in_library ? 'Already in your library' : 'Include song in download'}">
                                 <input type="checkbox" class="track-checkbox" data-album-idx="${albIdx}" data-track-idx="${tIdx}" ${t.selected ? 'checked' : ''}>

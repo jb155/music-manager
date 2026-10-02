@@ -1,5 +1,5 @@
 {
-  "version": "1.7.2",
+  "version": "1.7.3",
   "release_date": "2026-10-02",
-  "notes": "Full library and playlist audio playback from Vault, queue auto-advance on song end, complete music controls suite (shuffle, loop off/all/one, prev/next, volume persistence), and distinct preview buttons with headphone icons for pre-download clips."
+  "notes": "Ensure track play and preview buttons maintain consistent circular aspect ratio on long track titles, fix flex shrink layout issues, and refine hover/active highlight visual consistency across recommendations, library, playlists, and discography."
 }
