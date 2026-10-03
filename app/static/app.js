@@ -4336,7 +4336,7 @@ async function loadLibraryHierarchy() {
                             <div class="lib-artist-title-row">
                                 <h3>${escapeHtml(art.name)}</h3>
                                 ${art.match_percent != null ? `<span class="badge badge-match">${art.match_percent}% match</span>` : ''}
-                                ${art.matched_item ? `<span class="badge badge-matched-item" style="background: rgba(245, 158, 11, 0.18); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); font-size: 11px;"><i class="fa-solid fa-music"></i> ${escapeHtml(art.matched_item)}</span>` : ''}
+                                ${art.matched_item ? `<button type="button" class="badge badge-matched-item btn-jump-matched-track" data-art-idx="${idx}" data-track-title="${escapeAttr(art.matched_track_title || (art.matched_item.startsWith('Track: ') ? art.matched_item.slice(7) : ''))}" data-album-name="${escapeAttr(art.matched_album || (art.matched_item.startsWith('Album: ') ? art.matched_item.slice(7) : ''))}" data-track-id="${art.matched_track_id || ''}" title="Click to jump directly to this track/album in the vault"><i class="fa-solid ${art.matched_item.startsWith('Album: ') ? 'fa-record-vinyl' : 'fa-music'}"></i> <span>${escapeHtml(art.matched_item)}</span> <i class="fa-solid fa-arrow-turn-down" style="font-size: 9px; opacity: 0.85; margin-left: 3px;"></i></button>` : ''}
                                 <span class="badge" style="font-size: 11px;">${escapeHtml(art.genre || "Music")}</span>
                             </div>
 
@@ -4375,7 +4375,7 @@ async function loadLibraryHierarchy() {
         // Bind Artist Row Clicks to toggle albums
         listEl.querySelectorAll(".lib-artist-row").forEach((row, idx) => {
             row.addEventListener("click", (e) => {
-                if (e.target.closest(".btn-add-artist-pl") || e.target.closest(".btn-toggle-artist-albums") || e.target.closest(".btn-delete-artist")) return;
+                if (e.target.closest(".btn-add-artist-pl") || e.target.closest(".btn-toggle-artist-albums") || e.target.closest(".btn-delete-artist") || e.target.closest(".btn-jump-matched-track")) return;
                 toggleArtistAlbums(idx);
             });
         });
@@ -4404,6 +4404,19 @@ async function loadLibraryHierarchy() {
                 e.stopPropagation();
                 const artName = btn.dataset.artist;
                 openDeleteModal("artist", artName, { artist: artName });
+            });
+        });
+
+        // Bind Click on Matched Track Badges to jump directly to that song/album
+        listEl.querySelectorAll(".btn-jump-matched-track").forEach(badge => {
+            badge.addEventListener("click", async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const artIdx = parseInt(badge.dataset.artIdx);
+                const trackTitle = badge.dataset.trackTitle || "";
+                const albumName = badge.dataset.albumName || "";
+                const trackId = badge.dataset.trackId || "";
+                await jumpToMatchedTrack(artIdx, trackTitle, albumName, trackId);
             });
         });
 
@@ -4728,6 +4741,108 @@ function renderAlbumSongs(artIdx, albIdx) {
     // Update play state if currently playing
     if (audioManager) audioManager.updatePlayStateUI();
 }
+
+// Jump directly to matched track or album in Artist View
+async function jumpToMatchedTrack(artIdx, targetTrackTitle, targetAlbumName, targetTrackId) {
+    const art = currentLibraryArtists[artIdx];
+    if (!art) return;
+
+    const artistItem = document.querySelector(`.lib-artist-item[data-index="${artIdx}"]`);
+    if (!artistItem) return;
+
+    // 1. Ensure artist is expanded
+    if (!artistItem.classList.contains("expanded")) {
+        await toggleArtistAlbums(artIdx);
+    }
+
+    // Small delay to ensure album DOM is rendered
+    await new Promise(resolve => setTimeout(resolve, 80));
+
+    if (!art.albums || art.albums.length === 0) return;
+
+    // 2. Identify target album
+    let targetAlbIdx = -1;
+    if (targetAlbumName) {
+        const normTargetAlb = normalizeSearchText(targetAlbumName);
+        targetAlbIdx = art.albums.findIndex(a => normalizeSearchText(a.name) === normTargetAlb);
+        if (targetAlbIdx === -1) {
+            targetAlbIdx = art.albums.findIndex(a => 
+                normalizeSearchText(a.name).includes(normTargetAlb) || 
+                normTargetAlb.includes(normalizeSearchText(a.name))
+            );
+        }
+    }
+
+    // Fallback if not found by name: if only 1 album exists, use it
+    if (targetAlbIdx === -1 && art.albums.length === 1) {
+        targetAlbIdx = 0;
+    }
+
+    // If still not found, search each album's tracks if already loaded
+    if (targetAlbIdx === -1) {
+        for (let i = 0; i < art.albums.length; i++) {
+            const alb = art.albums[i];
+            if (alb.tracks && alb.tracks.some(t => 
+                (targetTrackId && String(t.id) === String(targetTrackId)) || 
+                (targetTrackTitle && normalizeSearchText(t.title) === normalizeSearchText(targetTrackTitle))
+            )) {
+                targetAlbIdx = i;
+                break;
+            }
+        }
+    }
+
+    // If still not found and we have albums, default to first album
+    if (targetAlbIdx === -1 && art.albums.length > 0) {
+        targetAlbIdx = 0;
+    }
+
+    if (targetAlbIdx === -1) return;
+
+    // 3. Ensure album songs drawer is expanded
+    const albumItem = document.querySelector(`.lib-album-item[data-art-idx="${artIdx}"][data-alb-idx="${targetAlbIdx}"]`);
+    if (albumItem && !albumItem.classList.contains("expanded")) {
+        await toggleAlbumSongs(artIdx, targetAlbIdx);
+    }
+
+    // Small delay to allow song list DOM insertion
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // 4. Locate target song row
+    let songRow = null;
+    if (targetTrackId) {
+        songRow = document.querySelector(`.lib-song-row[data-song-id="${targetTrackId}"]`);
+    }
+
+    if (!songRow && targetTrackTitle) {
+        const normTargetTitle = normalizeSearchText(targetTrackTitle);
+        const candidateRows = document.querySelectorAll(`#lib-songs-content-${artIdx}-${targetAlbIdx} .lib-song-row`);
+        for (const row of candidateRows) {
+            const rowTitle = row.querySelector(".lib-song-title")?.textContent || "";
+            if (normalizeSearchText(rowTitle) === normTargetTitle ||
+                normalizeSearchText(rowTitle).includes(normTargetTitle) ||
+                normTargetTitle.includes(normalizeSearchText(rowTitle))) {
+                songRow = row;
+                break;
+            }
+        }
+    }
+
+    if (songRow) {
+        songRow.scrollIntoView({ behavior: "smooth", block: "center" });
+        songRow.classList.add("jump-pulse-highlight");
+        setTimeout(() => {
+            songRow.classList.remove("jump-pulse-highlight");
+        }, 4000);
+    } else if (albumItem) {
+        albumItem.scrollIntoView({ behavior: "smooth", block: "center" });
+        albumItem.classList.add("jump-pulse-highlight");
+        setTimeout(() => {
+            albumItem.classList.remove("jump-pulse-highlight");
+        }, 4000);
+    }
+}
+
 
 // ----------------------------------------------------------------------------
 // CLASSIC FLAT TRACK TABLE VIEW

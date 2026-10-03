@@ -4890,6 +4890,9 @@ paths:
             except (ValueError, TypeError):
                 pass
 
+        where_sql = " AND ".join(base_where)
+        sql_params = list(base_params)
+
         order_dir = "DESC" if str(sort_order).lower() == "desc" else "ASC"
         s_by = str(sort_by).lower().strip()
 
@@ -4916,7 +4919,7 @@ paths:
                     " SELECT "
                     "     COALESCE(NULLIF(albumartist, ''), artist) as art_name,"
                     "     MAX(CASE WHEN mm_norm(COALESCE(NULLIF(albumartist, ''), artist)) LIKE ? THEN 1 ELSE 0 END) as matched_artist_name,"
-                    "     GROUP_CONCAT(DISTINCT CASE WHEN mm_norm(title) LIKE ? THEN title ELSE NULL END) as matched_titles,"
+                    "     GROUP_CONCAT(DISTINCT CASE WHEN mm_norm(title) LIKE ? THEN title || ':::' || COALESCE(album, '') || ':::' || id ELSE NULL END) as matched_titles,"
                     "     GROUP_CONCAT(DISTINCT CASE WHEN mm_norm(album) LIKE ? THEN album ELSE NULL END) as matched_albums"
                     " FROM items"
                     f" WHERE {sub_where_sql}"
@@ -4957,10 +4960,10 @@ paths:
                         " NULL as matched_titles,"
                         " NULL as matched_albums"
                         " FROM items"
-                        f" WHERE {' AND '.join(base_where)}"
+                        f" WHERE {where_sql}"
                         " GROUP BY lower(artist_name)"
                     )
-                    c.execute(fallback_sql, base_params)
+                    c.execute(fallback_sql, sql_params)
                     for r in c.fetchall():
                         s = self.calculate_artist_match_score(clean_q, r[0])
                         if s >= 60.0:
@@ -4977,46 +4980,60 @@ paths:
 
                     score = self.calculate_artist_match_score(clean_q, name)
                     matched_item = None
+                    matched_track_title = None
+                    matched_album_name = None
+                    matched_track_id = None
 
                     if score >= 60.0:
                         pass # direct artist match
                     elif is_art_match:
                         score = 90.0
                     elif matched_titles:
-                        titles = [t.strip() for t in matched_titles.split(",") if t.strip()]
+                        raw_entries = [t.strip() for t in matched_titles.split(",") if t.strip()]
+                        parsed_tracks = []
+                        for entry in raw_entries:
+                            parts = entry.split(":::")
+                            t_title = parts[0].strip()
+                            t_album = parts[1].strip() if len(parts) > 1 else ""
+                            t_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+                            parsed_tracks.append((t_title, t_album, t_id))
                         # Prioritize exact match or shortest matching title
-                        titles.sort(key=lambda t: (0 if norm_q == normalize_search_text(t) else (1 if norm_q in normalize_search_text(t) else 2), len(t)))
-                        first_title = titles[0]
-                        matched_item = f"Track: {first_title}"
-                        score = 95.0 if norm_q in normalize_search_text(first_title) else 85.0
+                        parsed_tracks.sort(key=lambda x: (0 if norm_q == normalize_search_text(x[0]) else (1 if norm_q in normalize_search_text(x[0]) else 2), len(x[0])))
+                        best_title, best_album, best_id = parsed_tracks[0]
+                        matched_item = f"Track: {best_title}"
+                        matched_track_title = best_title
+                        matched_album_name = best_album
+                        matched_track_id = best_id
+                        score = 95.0 if norm_q in normalize_search_text(best_title) else 85.0
                     elif matched_albums:
                         albums = [a.strip() for a in matched_albums.split(",") if a.strip()]
                         albums.sort(key=lambda a: (0 if norm_q == normalize_search_text(a) else (1 if norm_q in normalize_search_text(a) else 2), len(a)))
                         first_album = albums[0]
                         matched_item = f"Album: {first_album}"
+                        matched_album_name = first_album
                         score = 95.0 if norm_q in normalize_search_text(first_album) else 85.0
                     else:
                         score = 80.0
 
-                    scored_rows.append((score, matched_item, r))
+                    scored_rows.append((score, matched_item, matched_track_title, matched_album_name, matched_track_id, r))
 
                 # If sorting by artist or relevance (default search behavior), sort primarily by % match!
                 if s_by in ("artist", "relevance", "match") or not s_by:
-                    scored_rows.sort(key=lambda x: (x[0], x[2][1]), reverse=True)
+                    scored_rows.sort(key=lambda x: (x[0], x[5][1]), reverse=True)
                 elif s_by in ("album", "albums"):
-                    scored_rows.sort(key=lambda x: x[2][2], reverse=(order_dir == "DESC"))
+                    scored_rows.sort(key=lambda x: x[5][2], reverse=(order_dir == "DESC"))
                 elif s_by in ("title", "track", "tracks"):
-                    scored_rows.sort(key=lambda x: x[2][1], reverse=(order_dir == "DESC"))
+                    scored_rows.sort(key=lambda x: x[5][1], reverse=(order_dir == "DESC"))
                 elif s_by in ("year", "era"):
-                    scored_rows.sort(key=lambda x: x[2][5] or 0, reverse=(order_dir == "DESC"))
+                    scored_rows.sort(key=lambda x: x[5][5] or 0, reverse=(order_dir == "DESC"))
                 elif s_by in ("added", "recent"):
-                    scored_rows.sort(key=lambda x: x[2][6] or 0, reverse=(order_dir == "DESC"))
+                    scored_rows.sort(key=lambda x: x[5][6] or 0, reverse=(order_dir == "DESC"))
 
                 total_artists = len(scored_rows)
                 page_rows = scored_rows[offset:offset + limit]
 
                 artists = []
-                for score, matched_item, r in page_rows:
+                for score, matched_item, matched_track_title, matched_album_name, matched_track_id, r in page_rows:
                     name, t_count, a_count, g, min_y, max_y, _, _, _, _ = r
                     year_str = ""
                     if min_y and max_y:
@@ -5033,6 +5050,9 @@ paths:
                         "year_range": year_str,
                         "match_percent": round(score),
                         "matched_item": matched_item,
+                        "matched_track_title": matched_track_title,
+                        "matched_album": matched_album_name,
+                        "matched_track_id": matched_track_id,
                         "image_url": f"/api/library/artist-art?artist={urllib.parse.quote(name)}"
                     })
 
