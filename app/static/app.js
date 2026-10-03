@@ -159,25 +159,67 @@ async function showUpdateModal(data, forceRefresh = false) {
 function initTabs() {
     const tabBtns = document.querySelectorAll(".tab-btn");
     const panes = document.querySelectorAll(".tab-pane");
+    const tabsContainer = document.getElementById("main-tabs-nav") || document.querySelector(".tabs");
+    const wrapper = document.querySelector(".tabs-nav-wrapper");
+    const leftScrollBtn = document.getElementById("btn-tabs-scroll-left");
+    const rightScrollBtn = document.getElementById("btn-tabs-scroll-right");
+
+    function centerActiveTab(btn, smooth = true) {
+        if (!tabsContainer || !btn) return;
+        const btnLeft = btn.offsetLeft;
+        const btnWidth = btn.offsetWidth;
+        const containerWidth = tabsContainer.clientWidth;
+        const targetScroll = btnLeft - (containerWidth / 2) + (btnWidth / 2);
+        tabsContainer.scrollTo({
+            left: Math.max(0, targetScroll),
+            behavior: smooth ? "smooth" : "auto"
+        });
+    }
+
+    function updateTabScrollIndicators() {
+        if (!tabsContainer) return;
+        const scrollLeft = tabsContainer.scrollLeft;
+        const maxScroll = Math.max(0, tabsContainer.scrollWidth - tabsContainer.clientWidth);
+        const canScrollLeft = scrollLeft > 6;
+        const canScrollRight = (maxScroll - scrollLeft) > 6;
+
+        if (wrapper) {
+            wrapper.classList.toggle("can-scroll-left", canScrollLeft);
+            wrapper.classList.toggle("can-scroll-right", canScrollRight);
+        }
+
+        if (leftScrollBtn) {
+            leftScrollBtn.style.opacity = canScrollLeft ? "1" : "0";
+            leftScrollBtn.style.pointerEvents = canScrollLeft ? "auto" : "none";
+        }
+        if (rightScrollBtn) {
+            rightScrollBtn.style.opacity = canScrollRight ? "1" : "0";
+            rightScrollBtn.style.pointerEvents = canScrollRight ? "auto" : "none";
+        }
+    }
 
     tabBtns.forEach(btn => {
         btn.addEventListener("click", () => {
             const tabName = btn.dataset.tab;
 
-            tabBtns.forEach(b => b.classList.remove("active"));
+            tabBtns.forEach(b => {
+                b.classList.remove("active");
+                b.setAttribute("aria-selected", "false");
+            });
             panes.forEach(p => p.classList.remove("active"));
 
             btn.classList.add("active");
+            btn.setAttribute("aria-selected", "true");
             const targetPane = document.getElementById(`pane-${tabName}`);
             if (targetPane) targetPane.classList.add("active");
 
-            // Ensure active tab is visible in horizontal carousel and scroll to top on mobile
-            try {
-                btn.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-                if (window.innerWidth <= 768) {
-                    window.scrollTo({ top: 0, behavior: "smooth" });
-                }
-            } catch (_) {}
+            // Smoothly center the active tab in the horizontal scroll container
+            centerActiveTab(btn, true);
+
+            // Scroll window to top on mobile for immediate view of tab content
+            if (window.innerWidth <= 768) {
+                window.scrollTo({ top: 0, behavior: "smooth" });
+            }
 
             // Refresh tab-specific data
             if (tabName === "playlist") {
@@ -191,6 +233,58 @@ function initTabs() {
             }
         });
     });
+
+    if (tabsContainer) {
+        tabsContainer.addEventListener("scroll", updateTabScrollIndicators, { passive: true });
+        window.addEventListener("resize", updateTabScrollIndicators, { passive: true });
+
+        // Left & Right scroll buttons click handlers
+        if (leftScrollBtn) {
+            leftScrollBtn.addEventListener("click", () => {
+                tabsContainer.scrollBy({ left: -220, behavior: "smooth" });
+            });
+        }
+        if (rightScrollBtn) {
+            rightScrollBtn.addEventListener("click", () => {
+                tabsContainer.scrollBy({ left: 220, behavior: "smooth" });
+            });
+        }
+
+        // Mouse drag-to-scroll support for desktop users on smaller screens/windows
+        let isDown = false;
+        let startX = 0;
+        let initialScroll = 0;
+
+        tabsContainer.addEventListener("mousedown", (e) => {
+            if (e.target.closest(".tab-btn")) return;
+            isDown = true;
+            tabsContainer.classList.add("is-dragging");
+            startX = e.pageX - tabsContainer.offsetLeft;
+            initialScroll = tabsContainer.scrollLeft;
+        });
+
+        window.addEventListener("mouseup", () => {
+            if (isDown) {
+                isDown = false;
+                tabsContainer.classList.remove("is-dragging");
+            }
+        });
+
+        tabsContainer.addEventListener("mousemove", (e) => {
+            if (!isDown) return;
+            e.preventDefault();
+            const x = e.pageX - tabsContainer.offsetLeft;
+            const walk = (x - startX) * 1.5;
+            tabsContainer.scrollLeft = initialScroll - walk;
+        });
+
+        // Initialize state on render
+        setTimeout(() => {
+            updateTabScrollIndicators();
+            const activeBtn = document.querySelector(".tab-btn.active");
+            if (activeBtn) centerActiveTab(activeBtn, false);
+        }, 100);
+    }
 }
 
 // Stats & Polling

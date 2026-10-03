@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Music Manager Web</title>
-    <link rel="stylesheet" href="/static/style.css?v=1.7.7">
+    <link rel="stylesheet" href="/static/style.css?v=1.7.8">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
 <body>
@@ -64,15 +64,23 @@
         </div>
 
         <!-- Main Navigation Tabs -->
-        <nav class="tabs">
-            <button class="tab-btn active" data-tab="download"><i class="fa-solid fa-cloud-arrow-down"></i> Download</button>
-            <button class="tab-btn" data-tab="library"><i class="fa-solid fa-record-vinyl"></i> Library</button>
-            <button class="tab-btn" data-tab="playlist"><i class="fa-solid fa-list-ol"></i> Playlist Creator</button>
-            <button class="tab-btn" data-tab="recommendations"><i class="fa-solid fa-compass"></i> Recommendations</button>
-            <button class="tab-btn" data-tab="missing"><i class="fa-solid fa-magnifying-glass-chart"></i> Missing Tracks <span class="badge" id="missing-badge">0</span></button>
-            <button class="tab-btn" data-tab="staging"><i class="fa-solid fa-box-archive"></i> Staging & Import <span class="badge" id="staging-badge">0</span></button>
-            <button class="tab-btn" data-tab="terminal"><i class="fa-solid fa-terminal"></i> Live Console</button>
-        </nav>
+        <div class="tabs-nav-wrapper">
+            <button type="button" class="tab-scroll-btn tab-scroll-left" id="btn-tabs-scroll-left" aria-label="Scroll tabs left" title="Scroll left">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
+            <nav class="tabs" id="main-tabs-nav" role="tablist" aria-label="Main Navigation">
+                <button class="tab-btn active" data-tab="download" role="tab" aria-selected="true"><i class="fa-solid fa-cloud-arrow-down"></i> Download</button>
+                <button class="tab-btn" data-tab="library" role="tab" aria-selected="false"><i class="fa-solid fa-record-vinyl"></i> Library</button>
+                <button class="tab-btn" data-tab="playlist" role="tab" aria-selected="false"><i class="fa-solid fa-list-ol"></i> Playlist Creator</button>
+                <button class="tab-btn" data-tab="recommendations" role="tab" aria-selected="false"><i class="fa-solid fa-compass"></i> Recommendations</button>
+                <button class="tab-btn" data-tab="missing" role="tab" aria-selected="false"><i class="fa-solid fa-magnifying-glass-chart"></i> Missing Tracks <span class="badge" id="missing-badge">0</span></button>
+                <button class="tab-btn" data-tab="staging" role="tab" aria-selected="false"><i class="fa-solid fa-box-archive"></i> Staging & Import <span class="badge" id="staging-badge">0</span></button>
+                <button class="tab-btn" data-tab="terminal" role="tab" aria-selected="false"><i class="fa-solid fa-terminal"></i> Live Console</button>
+            </nav>
+            <button type="button" class="tab-scroll-btn tab-scroll-right" id="btn-tabs-scroll-right" aria-label="Scroll tabs right" title="Scroll right">
+                <i class="fa-solid fa-chevron-right"></i>
+            </button>
+        </div>
 
         <!-- Main Content Area -->
         <main class="content-body">
@@ -1314,12 +1322,12 @@
 
     <!-- Subtle Version Watermark (Bottom-Left) -->
     <div class="version-watermark" id="app-version-watermark" title="Music Manager (Click to view version and update details)">
-        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.7.7
+        <i class="fa-solid fa-code-branch" style="font-size: 10px; margin-right: 4px; opacity: 0.7;"></i>v1.7.8
     </div>
 
     <!-- Notification Toast -->
     <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
 
-    <script src="/static/app.js?v=1.7.7"></script>
+    <script src="/static/app.js?v=1.7.8"></script>
 </body>
 </html>
