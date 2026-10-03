@@ -2941,6 +2941,7 @@ paths:
             total_tracks = style_track_counts[sid]
             if total_tracks >= 20:
                 top_artists = [a for a, _ in style_artists[sid].most_common(3)]
+                matching_pool = [a for a, _ in style_artists[sid].most_common(30)]
                 artists_str = " / ".join(top_artists)
                 dynamic_candidates.append({
                     "id": sid,
@@ -2948,7 +2949,8 @@ paths:
                     "icon": tax["icon"],
                     "artists_preview": f"({artists_str})" if artists_str else "",
                     "guidance": tax["guidance_template"].format(artists=artists_str or tax["name"]),
-                    "track_count": total_tracks
+                    "track_count": total_tracks,
+                    "matching_artists": matching_pool
                 })
 
         dynamic_candidates.sort(key=lambda x: x.get("track_count", 0), reverse=True)
@@ -3094,24 +3096,64 @@ paths:
         # 1. Determine anchor artists
         anchors = [a.strip() for a in (anchor_artists or []) if a and a.strip()]
 
-        if not anchors and preset and preset != "all":
-            # Match style preset to library artists
-            styles = self.get_dynamic_style_focuses()
-            for s in styles:
-                if s.get("id") == preset:
-                    preview = s.get("artists_preview", "").strip("()").split("/")
-                    anchors = [p.strip() for p in preview if p.strip()]
-                    break
+        if not anchors and preset:
+            if preset == "wildcard":
+                # For wildcard / hidden gems, sample from eclectic / lesser-known library artists (2 to 30 tracks)
+                db_path = os.path.join(self.beets_dir, "library.db")
+                if not os.path.exists(db_path):
+                    alt_db = os.path.join(self.music_dir, "library.db")
+                    if os.path.exists(alt_db):
+                        db_path = alt_db
+                try:
+                    conn = sqlite3.connect(db_path)
+                    c = conn.cursor()
+                    c.execute("""
+                        SELECT artist FROM items 
+                        WHERE artist != '' AND artist NOT LIKE '%Various Artists%' AND length > 10
+                        GROUP BY artist 
+                        HAVING count(*) >= 2 AND count(*) <= 30
+                        ORDER BY RANDOM() LIMIT 40
+                    """)
+                    gems = [r[0].strip() for r in c.fetchall() if r[0] and r[0].strip()]
+                    conn.close()
+                    if gems:
+                        anchors = random.sample(gems, min(len(gems), 5))
+                except Exception as e:
+                    logger.warning(f"Wildcard anchor discovery query failed: {e}")
+
+            elif preset != "all":
+                # Match style preset to library artists using the full matching pool
+                styles = self.get_dynamic_style_focuses()
+                for s in styles:
+                    if s.get("id") == preset:
+                        matching = s.get("matching_artists") or []
+                        if matching:
+                            anchors = random.sample(matching, min(len(matching), 5))
+                        else:
+                            preview = s.get("artists_preview", "").strip("()").split("/")
+                            anchors = [p.strip() for p in preview if p.strip()]
+                        break
 
         if not anchors:
-            top_taste = [a["artist"] for a in taste.get("top_artists", []) if a.get("artist")]
-            if top_taste:
-                anchors = random.sample(top_taste, min(len(top_taste), 4))
+            # Complete Library Mix or fallback: sample across distinct styles in the library
+            styles = self.get_dynamic_style_focuses()
+            style_anchors = []
+            for s in styles:
+                if s.get("id") not in ("all", "wildcard") and s.get("matching_artists"):
+                    style_anchors.append(random.choice(s["matching_artists"][:10]))
+            if style_anchors:
+                anchors = random.sample(style_anchors, min(len(style_anchors), 5))
             else:
-                anchors = ["Queen", "Pink Floyd"]
+                top_taste = [a["artist"] for a in taste.get("top_artists", []) if a.get("artist")]
+                if top_taste:
+                    anchors = random.sample(top_taste, min(len(top_taste), 5))
+                else:
+                    anchors = ["Queen", "Pink Floyd", "Fleetwood Mac"]
 
         if prompt and prompt.strip():
-            anchors.insert(0, prompt.strip())
+            clean_prompt = prompt.strip()
+            if clean_prompt not in anchors:
+                anchors.insert(0, clean_prompt)
 
         await self.broadcast_log(f"\n[Recommendations] Discovering music via Knowledge Graph for anchors: {', '.join(anchors)}...\n")
 
@@ -3131,7 +3173,7 @@ paths:
 
         # 2. Search anchors on Deezer concurrently
         search_tasks = [
-            async_fetch_json(f"https://api.deezer.com/search/artist?q={urllib.parse.quote(a)}")
+            async_fetch_json(f"https://api.deezer.com/search/artist?q={urllib.parse.quote(a)}&limit=25")
             for a in anchors[:6]
         ]
         search_results = await asyncio.gather(*search_tasks)
@@ -3140,25 +3182,26 @@ paths:
         for a_name, s_data in zip(anchors[:6], search_results):
             items = s_data.get("data", [])
             if items:
-                best = max(items, key=lambda x: x.get("nb_fan", 0))
-                best_anchors.append(best)
+                exact_matches = [item for item in items if item.get("name", "").strip().lower() == a_name.lower()]
+                best = max(exact_matches, key=lambda x: x.get("nb_fan", 0)) if exact_matches else max(items, key=lambda x: x.get("nb_fan", 0))
+                best_anchors.append((a_name, best))
 
         if not best_anchors:
-            fallback_res = await async_fetch_json("https://api.deezer.com/search/artist?q=Rock")
+            fallback_res = await async_fetch_json("https://api.deezer.com/search/artist?q=Rock&limit=25")
             if fallback_res.get("data"):
-                best_anchors = fallback_res["data"][:2]
+                best_anchors = [(item.get("name"), item) for item in fallback_res["data"][:2]]
 
         # 3. Fetch related artists concurrently
         related_tasks = [
-            async_fetch_json(f"https://api.deezer.com/artist/{b['id']}/related")
-            for b in best_anchors
+            async_fetch_json(f"https://api.deezer.com/artist/{b_item['id']}/related")
+            for _, b_item in best_anchors
         ]
         related_results = await asyncio.gather(*related_tasks)
 
         # 4. Filter and aggregate candidate artists
         candidate_map = {}
-        for b_item, r_data in zip(best_anchors, related_results):
-            b_name = b_item.get("name", "Artist")
+        for (a_name, b_item), r_data in zip(best_anchors, related_results):
+            anchor_label = b_item.get("name", a_name)
             for rel in r_data.get("data", []):
                 rel_name = rel.get("name", "").strip()
                 if not rel_name:
@@ -3173,55 +3216,103 @@ paths:
                 key = rel_name.lower()
                 if key not in candidate_map:
                     candidate_map[key] = {
+                        "name": rel_name,
                         "item": rel,
-                        "anchors": [b_name],
+                        "anchors": [anchor_label],
                         "nb_fan": rel.get("nb_fan", 0)
                     }
                 else:
-                    if b_name not in candidate_map[key]["anchors"]:
-                        candidate_map[key]["anchors"].append(b_name)
+                    if anchor_label not in candidate_map[key]["anchors"]:
+                        candidate_map[key]["anchors"].append(anchor_label)
 
-        # 4b. 2nd-degree expansion if library already has most 1st-degree related artists
-        if len(candidate_map) < count * 2:
-            second_degree_targets = []
-            for r_data in related_results:
-                for item in r_data.get("data", [])[:5]:
-                    if item.get("id") and item.get("id") not in [t["id"] for t in second_degree_targets]:
-                        second_degree_targets.append(item)
-            if second_degree_targets:
-                second_tasks = [
-                    async_fetch_json(f"https://api.deezer.com/artist/{t['id']}/related")
-                    for t in second_degree_targets[:8]
-                ]
-                second_results = await asyncio.gather(*second_tasks)
-                for t_item, s_res in zip(second_degree_targets[:8], second_results):
-                    t_name = t_item.get("name", "Anchor")
-                    for rel in s_res.get("data", []):
-                        rel_name = rel.get("name", "").strip()
-                        if not rel_name:
-                            continue
-                        if rel_name.lower() in lib_artists_set:
-                            continue
-                        if any(rel_name.lower() == a.lower() for a in anchors):
-                            continue
-                        key = rel_name.lower()
-                        if key not in candidate_map:
-                            candidate_map[key] = {
-                                "item": rel,
-                                "anchors": [t_name],
-                                "nb_fan": rel.get("nb_fan", 0)
-                            }
-                        else:
-                            if t_name not in candidate_map[key]["anchors"]:
-                                candidate_map[key]["anchors"].append(t_name)
+        # 4b. 2nd-degree expansion: if any anchor has fewer than 4 candidates, expand via its related artists
+        second_degree_targets = []
+        for (a_name, b_item), r_data in zip(best_anchors, related_results):
+            anchor_label = b_item.get("name", a_name)
+            existing_count = sum(1 for c in candidate_map.values() if anchor_label in c["anchors"])
+            if existing_count < 4:
+                for item in r_data.get("data", [])[:4]:
+                    if item.get("id") and item.get("id") not in [t["item"]["id"] for t in second_degree_targets]:
+                        second_degree_targets.append({"item": item, "parent_anchor": anchor_label})
 
-        ranked = sorted(
-            candidate_map.values(),
-            key=lambda c: (len(c["anchors"]), c["nb_fan"]),
-            reverse=True
-        )
+        if second_degree_targets:
+            second_tasks = [
+                async_fetch_json(f"https://api.deezer.com/artist/{t['item']['id']}/related")
+                for t in second_degree_targets[:12]
+            ]
+            second_results = await asyncio.gather(*second_tasks)
+            for s_target, s_res in zip(second_degree_targets[:12], second_results):
+                parent_anchor = s_target["parent_anchor"]
+                for rel in s_res.get("data", []):
+                    rel_name = rel.get("name", "").strip()
+                    if not rel_name or rel_name.lower() in lib_artists_set:
+                        continue
+                    if any(rel_name.lower() == a.lower() for a in anchors):
+                        continue
+                    key = rel_name.lower()
+                    if key not in candidate_map:
+                        candidate_map[key] = {
+                            "name": rel_name,
+                            "item": rel,
+                            "anchors": [parent_anchor],
+                            "nb_fan": rel.get("nb_fan", 0)
+                        }
+                    else:
+                        if parent_anchor not in candidate_map[key]["anchors"]:
+                            candidate_map[key]["anchors"].append(parent_anchor)
 
-        selected = ranked[:count]
+        # 5. Diversified Selection: Ensure recommendations represent multiple anchors fairly
+        resolved_anchors = [b_item.get("name", a_name) for a_name, b_item in best_anchors]
+        num_anchors = max(1, len(resolved_anchors))
+        max_per_anchor = max(1, math.ceil(count / num_anchors)) if num_anchors >= 3 else (count // num_anchors if num_anchors > 1 else count)
+        if max_per_anchor < 2 and count > num_anchors:
+            max_per_anchor = 2
+
+        # Pool candidates by anchor
+        anchor_pools = defaultdict(list)
+        for cand in candidate_map.values():
+            for a_name in cand["anchors"]:
+                anchor_pools[a_name].append(cand)
+
+        # Sort each anchor's pool: candidates matching multiple anchors first, then by fan count
+        for a_name in anchor_pools:
+            anchor_pools[a_name].sort(key=lambda c: (len(c["anchors"]), c["nb_fan"]), reverse=True)
+
+        selected = []
+        selected_keys = set()
+        anchor_usage = defaultdict(int)
+
+        # Multi-round fair round-robin across anchors
+        for round_idx in range(6):
+            if len(selected) >= count:
+                break
+            for a_name in resolved_anchors:
+                if len(selected) >= count:
+                    break
+                if anchor_usage[a_name] >= max_per_anchor:
+                    continue
+
+                for cand in anchor_pools[a_name]:
+                    c_key = cand["name"].lower()
+                    if c_key not in selected_keys:
+                        # Avoid picking candidates whose co-anchors are already maxed out
+                        if any(anchor_usage[other_a] >= max_per_anchor + 1 for other_a in cand["anchors"]):
+                            continue
+                        selected.append(cand)
+                        selected_keys.add(c_key)
+                        for other_a in cand["anchors"]:
+                            anchor_usage[other_a] += 1
+                        break
+
+        # Fallback if rounds did not fill all `count` slots
+        if len(selected) < count:
+            remaining = [c for c in candidate_map.values() if c["name"].lower() not in selected_keys]
+            remaining.sort(key=lambda c: (len(c["anchors"]), c["nb_fan"]), reverse=True)
+            for cand in remaining:
+                if len(selected) >= count:
+                    break
+                selected.append(cand)
+                selected_keys.add(cand["name"].lower())
 
         # 5. Fetch top tracks concurrently for selected artists
         top_tasks = [
